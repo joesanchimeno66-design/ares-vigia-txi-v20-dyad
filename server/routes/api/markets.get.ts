@@ -7,7 +7,7 @@ type Metrics = {
   returns: { intraday: number | null; week: number | null; month: number | null; sixMonths: number | null; year: number | null };
   ema9: number | null; ema21: number | null; rsi14: number | null; macd: number | null;
   macdSignal: number | null; macdHistogram: number | null; bollingerZ: number | null;
-  volatility: number | null; trend: "alcista" | "bajista" | "lateral"; samples: number;
+  volatility: number | null; trend: "alcista" | "bajista" | "lateral" | null; samples: number;
 };
 type Quote = {
   symbol: string; ticker: string; name: string; price: number; change: number;
@@ -113,12 +113,13 @@ function emaSeries(values: number[], period: number) { if (!values.length) retur
 function rsi(values: number[], period=14) { if(values.length<period+1)return null; let gains=0,losses=0; for(let i=values.length-period;i<values.length;i++){const d=values[i]-values[i-1];gains+=Math.max(d,0);losses+=Math.max(-d,0);} if(!losses)return 100; const rs=(gains/period)/(losses/period); return 100-100/(1+rs); }
 function metrics(points: Point[], intraday: number | null): Metrics {
   const values=points.map(p=>p.value).filter(Number.isFinite); const last=values.at(-1) ?? 0;
-  const at=(days:number)=>pct(last,values.at(-(days+1))); const e9=ema(values.slice(-120),9),e21=ema(values.slice(-120),21);
+  const at=(days:number)=>values.length>days?pct(last,values.at(-(days+1))):null;
+  const e9=values.length>=9?ema(values.slice(-120),9):null,e21=values.length>=21?ema(values.slice(-120),21):null;
   let macd:null|number=null,signal:null|number=null,hist:null|number=null;
-  if(values.length>=26){const e12=emaSeries(values,12),e26=emaSeries(values,26);const series=e12.map((v,i)=>v-e26[i]);macd=series.at(-1)??null;signal=ema(series,9);hist=macd!==null&&signal!==null?macd-signal:null;}
+  if(values.length>=35){const e12=emaSeries(values,12),e26=emaSeries(values,26);const series=e12.map((v,i)=>v-e26[i]);macd=series.at(-1)??null;signal=ema(series.slice(-9),9);hist=macd!==null&&signal!==null?macd-signal:null;}
   let z:null|number=null;if(values.length>=20){const w=values.slice(-20),mean=w.reduce((a,b)=>a+b,0)/w.length;const sd=Math.sqrt(w.reduce((a,b)=>a+(b-mean)**2,0)/w.length);z=sd?(last-mean)/sd:0;}
-  const daily=values.slice(-31).flatMap((v,i,a)=>i&&a[i-1]>0?[(v-a[i-1])/a[i-1]]:[]);const vol=daily.length?Math.sqrt(daily.reduce((a,b)=>a+b*b,0)/daily.length)*Math.sqrt(252)*100:null;
-  const trend=e9!==null&&e21!==null?(e9>e21*1.002?"alcista":e9<e21*.998?"bajista":"lateral"):"lateral";
+  const daily=values.slice(-31).flatMap((v,i,a)=>i&&a[i-1]>0?[(v-a[i-1])/a[i-1]]:[]);const vol=daily.length>=2?Math.sqrt(daily.reduce((a,b)=>a+b*b,0)/daily.length)*Math.sqrt(252)*100:null;
+  const trend=e9!==null&&e21!==null?(e9>e21*1.002?"alcista":e9<e21*.998?"bajista":"lateral"):null;
   return {returns:{intraday,week:at(5),month:at(21),sixMonths:at(126),year:at(252)},ema9:e9,ema21:e21,rsi14:rsi(values),macd,macdSignal:signal,macdHistogram:hist,bollingerZ:z,volatility:vol,trend,samples:values.length};
 }
 function parseLines(text:string){const rows=new Map<string,string>();for(const raw of text.replace(/\r|\n/g,"").split(";")){if(!raw.includes("="))continue;const [left,...right]=raw.split("=");const key=left.trim().replace("var ","").replace("hq_str_","").replace("v_","").toLowerCase();const value=right.join("=").trim().replace(/^"|"$/g,"");if(key&&value)rows.set(key,value);}return rows;}

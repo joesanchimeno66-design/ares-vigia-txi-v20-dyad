@@ -2,9 +2,11 @@ import { defineHandler } from "nitro";
 import { createError, getQuery } from "nitro/h3";
 
 type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number | null };
+type CandleResult = { candles: Candle[]; provider: string; resolution: string };
 
 const allowedMarkets = new Set(["acciones", "europa", "cripto", "etfs", "fondos", "pequenas", "indices", "forex", "materias"]);
-const horizonDays = [35, 14, 45, 210, 390];
+const horizonDays = [2, 10, 45, 210, 390];
+const minimumCandles = [3, 5, 20, 45, 60];
 
 function numeric(value: unknown) {
   const parsed = Number(String(value ?? "").replace(",", "."));
@@ -17,7 +19,71 @@ function validateSymbol(value: unknown) {
   return symbol;
 }
 
-async function stooqCandles(symbol: string, horizon: number) {
+function validateTicker(value: unknown) {
+  const ticker = String(value ?? "").toUpperCase();
+  if (!/^[A-Z0-9.^_-]{1,30}$/.test(ticker)) throw createError({ statusCode: 400, statusMessage: "Ticker no válido" });
+  return ticker;
+}
+
+function validCandle(time: string, open: number | null, high: number | null, low: number | null, close: number | null, volume: number | null): Candle[] {
+  if (!time || open === null || high === null || low === null || close === null || Math.min(open, high, low, close) <= 0 || high < Math.max(open, close) || low > Math.min(open, close)) return [];
+  const parsedTime = /^\d{4}-\d{2}-\d{2}$/.test(time) ? `${time}T16:00:00Z` : new Date(time.replace(" ", "T") + (/Z$|[+-]\d\d:\d\d$/.test(time) ? "" : "Z")).toISOString();
+  return [{ time: parsedTime, open, high, low, close, volume }];
+}
+
+function ensureCoverage(result: CandleResult, horizon: number) {
+  const unique = [...new Map(result.candles.map((candle) => [candle.time, candle])).values()].sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+  if (unique.length < minimumCandles[horizon]) throw new Error(`${result.provider}: histórico insuficiente (${unique.length}/${minimumCandles[horizon]})`);
+  return { ...result, candles: unique };
+}
+
+async function tencentCandles(ticker: string, horizon: number): Promise<CandleResult> {
+  const code = `us${ticker}`;
+  const period = horizon === 0 ? "m5" : "day";
+  const limit = horizon === 0 ? 320 : [0, 12, 50, 220, 420][horizon];
+  const response = await fetch(`https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${encodeURIComponent(`${code},${period},,,${limit},qfq`)}`, {
+    headers: { Accept: "application/json", Referer: "https://gu.qq.com/", "User-Agent": "Mozilla/5.0 ARES-Vigia/13" }, signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`Tencent OHLC HTTP ${response.status}`);
+  const payload = await response.json() as { data?: Record<string, Record<string, unknown>> };
+  const bucket = payload.data?.[code];
+  const rows = (bucket?.[period] ?? bucket?.[`qfq${period}`]) as unknown;
+  const candles = (Array.isArray(rows) ? rows : []).flatMap((row): Candle[] => {
+    if (!Array.isArray(row)) return [];
+    return validCandle(String(row[0] ?? ""), numeric(row[1]), numeric(row[3]), numeric(row[4]), numeric(row[2]), numeric(row[5]));
+  });
+  return ensureCoverage({ candles, provider: "Tencent · OHLC real", resolution: horizon === 0 ? "5 minutos" : "1 día" }, horizon);
+}
+
+async function eastmoneySecid(ticker: string) {
+  const suggest = new URL("https://searchapi.eastmoney.com/api/suggest/get");
+  suggest.searchParams.set("input", ticker);
+  suggest.searchParams.set("type", "14");
+  suggest.searchParams.set("token", "D43BF722C8E33BDC906FB84D85E326E8");
+  const response = await fetch(suggest, { headers: { Accept: "application/json", Referer: "https://quote.eastmoney.com/" }, signal: AbortSignal.timeout(8_000) });
+  if (!response.ok) throw new Error(`Eastmoney búsqueda HTTP ${response.status}`);
+  const payload = await response.json() as { QuotationCodeTable?: { Data?: Array<{ Code?: string; QuoteID?: string }> } };
+  const match = payload.QuotationCodeTable?.Data?.find((item) => String(item.Code ?? "").toUpperCase() === ticker);
+  if (!match?.QuoteID) throw new Error("Eastmoney sin identificador exacto");
+  return match.QuoteID;
+}
+
+async function eastmoneyCandles(ticker: string, horizon: number): Promise<CandleResult> {
+  const secid = await eastmoneySecid(ticker);
+  const interval = horizon === 0 ? 5 : 101;
+  const limit = horizon === 0 ? 320 : [0, 12, 50, 220, 420][horizon];
+  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${encodeURIComponent(secid)}&klt=${interval}&fqt=1&lmt=${limit}&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56`;
+  const response = await fetch(url, { headers: { Accept: "application/json", Referer: "https://quote.eastmoney.com/" }, signal: AbortSignal.timeout(12_000) });
+  if (!response.ok) throw new Error(`Eastmoney OHLC HTTP ${response.status}`);
+  const payload = await response.json() as { data?: { klines?: string[] } };
+  const candles = (payload.data?.klines ?? []).flatMap((line): Candle[] => {
+    const fields = line.split(",");
+    return validCandle(fields[0], numeric(fields[1]), numeric(fields[3]), numeric(fields[4]), numeric(fields[2]), numeric(fields[5]));
+  });
+  return ensureCoverage({ candles, provider: "Eastmoney · OHLC real", resolution: horizon === 0 ? "5 minutos" : "1 día" }, horizon);
+}
+
+async function stooqCandles(symbol: string, horizon: number): Promise<CandleResult> {
   const end = new Date();
   const start = new Date(Date.now() - horizonDays[horizon] * 86_400_000);
   const date = (value: Date) => value.toISOString().slice(0, 10).replace(/-/g, "");
@@ -27,44 +93,35 @@ async function stooqCandles(symbol: string, horizon: number) {
   if (!response.ok) throw new Error(`Stooq HTTP ${response.status}`);
   const candles = (await response.text()).trim().split(/\r?\n/).slice(1).flatMap((line): Candle[] => {
     const fields = line.split(",");
-    const open = numeric(fields[1]), high = numeric(fields[2]), low = numeric(fields[3]), close = numeric(fields[4]), volume = numeric(fields[5]);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fields[0]) || open === null || high === null || low === null || close === null || Math.min(open, high, low, close) <= 0) return [];
-    return [{ time: `${fields[0]}T16:00:00Z`, open, high, low, close, volume }];
+    return validCandle(fields[0], numeric(fields[1]), numeric(fields[2]), numeric(fields[3]), numeric(fields[4]), numeric(fields[5]));
   });
-  return { candles, provider: "Stooq · histórico OHLC oficial", resolution: "1 día" };
+  return ensureCoverage({ candles, provider: "Stooq · respaldo OHLC", resolution: "1 día" }, horizon);
 }
 
-async function cryptoCandles(id: string, horizon: number) {
+async function yahooCandles(ticker: string, horizon: number): Promise<CandleResult> {
+  const range = (["5d", "1mo", "3mo", "1y", "2y"] as const)[horizon];
+  const interval = horizon === 0 ? "5m" : "1d";
+  const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=${interval}`, {
+    headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 ARES-Vigia/13" }, signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`Yahoo respaldo HTTP ${response.status}`);
+  const payload = await response.json() as { chart?: { result?: Array<{ timestamp?: number[]; indicators?: { quote?: Array<{ open?: Array<number | null>; high?: Array<number | null>; low?: Array<number | null>; close?: Array<number | null>; volume?: Array<number | null> }> } }> } };
+  const result = payload.chart?.result?.[0], quote = result?.indicators?.quote?.[0], stamps = result?.timestamp ?? [];
+  const candles = stamps.flatMap((stamp, index): Candle[] => validCandle(new Date(stamp * 1000).toISOString(), numeric(quote?.open?.[index]), numeric(quote?.high?.[index]), numeric(quote?.low?.[index]), numeric(quote?.close?.[index]), numeric(quote?.volume?.[index])));
+  return ensureCoverage({ candles, provider: "Yahoo Finance · último respaldo OHLC", resolution: horizon === 0 ? "5 minutos" : "1 día" }, horizon);
+}
+
+async function cryptoCandles(id: string, horizon: number): Promise<CandleResult> {
   const days = ([1, 7, 30, 365, 365] as const)[horizon];
   const response = await fetch(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/ohlc?vs_currency=usd&days=${days}`, {
     headers: { Accept: "application/json" }, signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`CoinGecko HTTP ${response.status}`);
   const payload = await response.json();
-  let candles: Candle[] = (Array.isArray(payload) ? payload : []).flatMap((row): Candle[] => {
-    if (!Array.isArray(row) || row.length < 5) return [];
-    const time = numeric(row[0]), open = numeric(row[1]), high = numeric(row[2]), low = numeric(row[3]), close = numeric(row[4]);
-    if (time === null || open === null || high === null || low === null || close === null) return [];
-    return [{ time: new Date(time).toISOString(), open, high, low, close, volume: null }];
-  });
+  let candles = (Array.isArray(payload) ? payload : []).flatMap((row): Candle[] => Array.isArray(row) && row.length >= 5 ? validCandle(new Date(Number(row[0])).toISOString(), numeric(row[1]), numeric(row[2]), numeric(row[3]), numeric(row[4]), null) : []);
   if (horizon === 3) candles = candles.filter((item) => Date.parse(item.time) >= Date.now() - 190 * 86_400_000);
   const resolution = horizon === 0 ? "30 minutos" : horizon === 1 ? "4 horas" : "4 días";
-  return { candles, provider: "CoinGecko · OHLC", resolution };
-}
-
-async function yahooCandles(symbol: string, horizon: number) {
-  const range = (["1mo", "1mo", "3mo", "1y", "2y"] as const)[horizon];
-  const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`, {
-    headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 ARES-Vigia/13" }, signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`Yahoo respaldo HTTP ${response.status}`);
-  const payload = await response.json() as { chart?: { result?: Array<{ timestamp?: number[]; indicators?: { quote?: Array<{ open?: Array<number | null>; high?: Array<number | null>; low?: Array<number | null>; close?: Array<number | null>; volume?: Array<number | null> }> } }> } };
-  const result = payload.chart?.result?.[0], quote = result?.indicators?.quote?.[0], stamps = result?.timestamp ?? [];
-  const candles = stamps.flatMap((stamp, index): Candle[] => {
-    const open = numeric(quote?.open?.[index]), high = numeric(quote?.high?.[index]), low = numeric(quote?.low?.[index]), close = numeric(quote?.close?.[index]), volume = numeric(quote?.volume?.[index]);
-    return open !== null && high !== null && low !== null && close !== null && Math.min(open, high, low, close) > 0 ? [{ time: new Date(stamp * 1000).toISOString(), open, high, low, close, volume }] : [];
-  });
-  return { candles, provider: "Yahoo Finance · respaldo final OHLC", resolution: "1 día" };
+  return ensureCoverage({ candles, provider: "CoinGecko · OHLC real", resolution }, horizon);
 }
 
 export default defineHandler(async (event) => {
@@ -72,22 +129,32 @@ export default defineHandler(async (event) => {
   const market = String(query.market ?? "").toLowerCase();
   if (!allowedMarkets.has(market)) throw createError({ statusCode: 400, statusMessage: "Mercado no válido" });
   const symbol = validateSymbol(query.symbol);
+  const ticker = validateTicker(query.ticker ?? query.symbol);
   const horizon = Math.max(0, Math.min(4, Number.parseInt(String(query.horizon ?? "0"), 10) || 0));
+  const errors: string[] = [];
   try {
-    let result;
+    let result: CandleResult;
     if (market === "cripto") result = await cryptoCandles(symbol, horizon);
     else {
-      try { result = await stooqCandles(symbol, horizon); }
-      catch { result = await yahooCandles(symbol, horizon); }
+      const providers = [
+        () => tencentCandles(ticker, horizon),
+        () => eastmoneyCandles(ticker, horizon),
+        () => stooqCandles(symbol, horizon),
+        () => yahooCandles(ticker, horizon),
+      ];
+      let selected: CandleResult | null = null;
+      for (const provider of providers) {
+        try { selected = await provider(); break; }
+        catch (error) { errors.push(error instanceof Error ? error.message : "fuente no disponible"); }
+      }
+      if (!selected) throw new Error(errors.join(" · "));
+      result = selected;
     }
-    return {
-      market, symbol, horizon, ...result, updatedAt: new Date().toISOString(),
-      error: result.candles.length ? null : "SIN DATOS – FUENTE NO DISPONIBLE",
-    };
+    return { market, symbol, ticker, horizon, ...result, updatedAt: new Date().toISOString(), error: null };
   } catch (error) {
     return {
-      market, symbol, horizon, candles: [], provider: market === "cripto" ? "CoinGecko" : "Stooq / Yahoo (respaldo)", resolution: "no disponible",
-      updatedAt: new Date().toISOString(), error: `SIN DATOS – FUENTE NO DISPONIBLE${error instanceof Error ? ` · ${error.message}` : ""}`,
+      market, symbol, ticker, horizon, candles: [], provider: market === "cripto" ? "CoinGecko" : "Tencent / Eastmoney / Stooq / Yahoo (último respaldo)", resolution: "no disponible",
+      updatedAt: new Date().toISOString(), error: `SIN DATOS OHLC – FUENTE NO DISPONIBLE${error instanceof Error ? ` · ${error.message}` : ""}`,
     };
   }
 });

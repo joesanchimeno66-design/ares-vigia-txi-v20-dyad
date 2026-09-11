@@ -41,7 +41,7 @@ export type MarketMetrics = {
   returns: { intraday: number | null; week: number | null; month: number | null; sixMonths: number | null; year: number | null };
   ema9: number | null; ema21: number | null; rsi14: number | null; macd: number | null;
   macdSignal: number | null; macdHistogram: number | null; bollingerZ: number | null;
-  volatility: number | null; trend: "alcista" | "bajista" | "lateral"; samples: number;
+  volatility: number | null; trend: "alcista" | "bajista" | "lateral" | null; samples: number;
 };
 
 export type MarketQuote = {
