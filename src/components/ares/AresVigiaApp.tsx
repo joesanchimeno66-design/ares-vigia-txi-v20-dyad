@@ -54,30 +54,71 @@ function Change({ value }: { value: number }) {
   </span>;
 }
 
-function Home({ go, quotes, onTool }: { go: (id: SectionId) => void; quotes: Record<MarketId, MarketQuote[]>; onTool: (tool: "bot" | "stop") => void }) {
-  const all = Object.values(quotes).flat();
-  const rising = all.filter((q) => q.change > .5).length;
-  const strongest = [...all].sort((a,b) => b.change-a.change)[0];
-  return <div className="space-y-6">
-    <section className="relative overflow-hidden rounded-[28px] border border-blue-100 bg-white p-6 shadow-[0_18px_55px_rgba(30,64,175,.08)] sm:p-8 lg:p-10">
-      <div className="absolute -right-10 top-8 hidden h-52 w-[45%] opacity-80 lg:block" aria-hidden="true">
-        <svg viewBox="0 0 500 200" className="h-full w-full"><path d="M0 155 C65 145 90 172 145 118 S240 150 290 89 S380 115 490 25" fill="none" stroke="#93c5fd" strokeWidth="4"/><path d="M0 180 C70 160 105 190 175 150 S270 165 335 120 S420 137 500 78" fill="none" stroke="#dbeafe" strokeWidth="3"/></svg>
-      </div>
-      <div className="relative max-w-2xl">
-        <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-[.16em] text-blue-700"><Zap className="size-3.5" /> Ares Engine activo</div>
-        <h1 className="text-3xl font-black tracking-[-.05em] text-slate-950 sm:text-5xl">Tu mercado, de un vistazo.</h1>
-        <p className="mt-4 max-w-xl text-sm font-medium leading-6 text-slate-600 sm:text-base">Radar, lanzaderas, gráficos, ARES IA y alertas tempranas. Datos informativos; la decisión siempre es tuya.</p>
-        <div className="mt-6 flex flex-wrap gap-3"><Button onClick={() => go("acciones")} className="h-11 rounded-xl bg-blue-600 px-5 font-bold shadow-lg shadow-blue-200 hover:bg-blue-700">Abrir radar <ChevronRight className="ml-1 size-4" /></Button><Button onClick={() => go("guia")} variant="outline" className="h-11 rounded-xl border-slate-200 px-5 font-bold"><CircleHelp className="mr-2 size-4" />Cómo funciona</Button></div>
+function Home({ go }: { go: (id: SectionId) => void; quotes: Record<MarketId, MarketQuote[]>; onTool: (tool: "bot" | "stop") => void }) {
+  const mainAccess = [
+    { title: "Radar", text: "Lectura clara del pulso de mercado.", icon: Radar, action: () => go("acciones"), tone: "bg-blue-50 text-blue-700" },
+    { title: "Lanzaderas", text: "Señales organizadas por horizonte.", icon: Activity, action: () => go("indices"), tone: "bg-emerald-50 text-emerald-700" },
+    { title: "ARES IA", text: "Contexto y análisis en lenguaje directo.", icon: Sparkles, action: () => go("ia"), tone: "bg-violet-50 text-violet-700" },
+    { title: "Watchlist", text: "Tus activos importantes, siempre cerca.", icon: Star, action: () => go("acciones"), tone: "bg-amber-50 text-amber-700" },
+  ];
+  const markets: Array<{ label: string; detail: string; id: SectionId }> = [
+    { label: "USA", detail: "Acciones", id: "acciones" },
+    { label: "Europa", detail: "Mercados", id: "europa" },
+    { label: "Cripto", detail: "24 / 7", id: "cripto" },
+    { label: "ETFs", detail: "Fondos cotizados", id: "etfs" },
+  ];
+
+  return <div className="space-y-5 sm:space-y-7">
+    <section className="relative overflow-hidden rounded-[30px] border border-[#dfe8f6] bg-white shadow-[0_24px_70px_rgba(30,64,175,.09)]">
+      <div className="grid min-h-[470px] lg:grid-cols-[1.08fr_.92fr]">
+        <div className="relative z-10 flex flex-col justify-center p-6 sm:p-10 lg:p-14">
+          <div className="mb-7 inline-flex w-fit items-center gap-2.5 rounded-full border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-[10px] font-black uppercase tracking-[.18em] text-emerald-800">
+            <span className="relative flex size-2.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-40"/><span className="relative inline-flex size-2.5 rounded-full bg-emerald-600"/></span>
+            ARES ENGINE ACTIVO
+          </div>
+          <p className="mb-3 text-[11px] font-black uppercase tracking-[.22em] text-blue-600">Inteligencia de mercado, sin ruido</p>
+          <h1 className="max-w-2xl text-4xl font-black leading-[.98] tracking-[-.055em] text-[#10213e] sm:text-6xl lg:text-[68px]">Tu mercado,<br/><span className="text-blue-600">de un vistazo.</span></h1>
+          <p className="mt-6 max-w-xl text-sm font-semibold leading-7 text-slate-600 sm:text-base">Un centro de mando diseñado para interpretar mercados con rapidez, ordenar señales y mantener el foco en lo que importa.</p>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <Button onClick={() => go("acciones")} className="h-12 rounded-2xl bg-blue-600 px-6 text-sm font-extrabold shadow-[0_12px_28px_rgba(37,99,235,.24)] hover:bg-blue-700">Abrir Radar <ChevronRight className="ml-1 size-4"/></Button>
+            <Button onClick={() => go("ia")} variant="outline" className="h-12 rounded-2xl border-slate-200 bg-white px-6 text-sm font-extrabold text-slate-700 hover:border-blue-200 hover:bg-blue-50">Conocer ARES IA <Sparkles className="ml-2 size-4 text-violet-600"/></Button>
+          </div>
+          <div className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-2 text-[11px] font-bold text-slate-500">
+            <span className="inline-flex items-center gap-2"><Check className="size-3.5 text-emerald-600"/>Responsive</span>
+            <span className="inline-flex items-center gap-2"><Check className="size-3.5 text-emerald-600"/>Navegación rápida</span>
+            <span className="inline-flex items-center gap-2"><Check className="size-3.5 text-emerald-600"/>Sin órdenes automáticas</span>
+          </div>
+        </div>
+
+        <div className="relative min-h-[350px] overflow-hidden bg-[#142e50] p-5 sm:p-8 lg:min-h-full lg:p-10">
+          <div className="absolute -right-16 -top-16 size-52 rounded-full border-[34px] border-blue-400/10"/>
+          <div className="absolute -bottom-20 -left-20 size-64 rounded-full border-[42px] border-cyan-300/10"/>
+          <div className="relative flex h-full min-h-[310px] flex-col justify-between rounded-[26px] border border-white/10 bg-[#19385f] p-5 shadow-[0_24px_60px_rgba(4,18,38,.28)] sm:p-6">
+            <div className="flex items-center justify-between"><div><p className="text-[9px] font-black uppercase tracking-[.2em] text-blue-200">Centro de mando</p><p className="mt-1 text-sm font-extrabold text-white">ARES VIGÍA TXI</p></div><span className="flex size-10 items-center justify-center rounded-2xl bg-blue-500 text-white"><Activity className="size-5"/></span></div>
+            <div className="my-7 flex-1" aria-hidden="true">
+              <svg viewBox="0 0 520 220" className="h-full min-h-36 w-full">
+                <g stroke="#31557c" strokeWidth="1">{[35,80,125,170].map(y=><line key={y} x1="0" x2="520" y1={y} y2={y}/>)}</g>
+                <path d="M0 174 C55 166 74 187 112 147 S181 166 218 126 S280 145 322 92 S391 113 430 63 S478 69 520 28" fill="none" stroke="#60a5fa" strokeWidth="5" strokeLinecap="round"/>
+                <path d="M0 195 C64 184 101 200 145 176 S225 187 267 150 S344 166 389 126 S461 138 520 100" fill="none" stroke="#5eead4" strokeWidth="2.5" strokeLinecap="round" opacity=".8"/>
+                {[112,218,322,430,520].map((cx,index)=><circle key={cx} cx={cx} cy={[147,126,92,63,28][index]} r="5" fill="#bfdbfe" stroke="#2563eb" strokeWidth="3"/>)}
+              </svg>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[{k:"RADAR",v:"LISTO"},{k:"IA",v:"PREPARADA"},{k:"VIGÍA",v:"ACTIVO"}].map(item=><div key={item.k} className="rounded-2xl bg-white/[.07] p-3"><p className="text-[8px] font-black tracking-[.16em] text-blue-200">{item.k}</p><p className="mt-1 text-[10px] font-extrabold text-white sm:text-xs">{item.v}</p></div>)}
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
-    <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {[{k:"Motores",v:"9 mercados",s:"Un espacio unificado"},{k:"En ascenso",v:`${rising} activos`,s:"Según la muestra cargada"},{k:"Mayor impulso",v:strongest?.symbol || "—",s:strongest ? `${strongest.change >= 0 ? "+" : ""}${strongest.change.toFixed(2)}%` : "Sin datos"},{k:"Protección",v:"Sin órdenes",s:"No compra ni vende"}].map(x => <div key={x.k} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">{x.k}</p><p className="mt-2 text-lg font-black tracking-tight text-slate-900">{x.v}</p><p className="mt-1 text-xs font-medium text-slate-500">{x.s}</p></div>)}
+    <section aria-label="Accesos principales" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {mainAccess.map(({title,text,icon:Icon,action,tone:toneClass})=><button key={title} onClick={action} className="group flex items-start gap-4 rounded-[22px] border border-slate-200 bg-white p-5 text-left shadow-sm transition duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-[0_16px_36px_rgba(30,64,175,.09)]"><span className={`flex size-11 shrink-0 items-center justify-center rounded-2xl ${toneClass}`}><Icon className="size-5"/></span><span className="min-w-0"><span className="flex items-center gap-2"><b className="text-sm font-black text-slate-900">{title}</b><ChevronRight className="size-3.5 text-slate-300 transition group-hover:translate-x-1 group-hover:text-blue-500"/></span><span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">{text}</span></span></button>)}
     </section>
 
-    <section><div className="mb-4"><p className="text-[11px] font-extrabold uppercase tracking-[.16em] text-blue-600">Super app</p><h2 className="mt-1 text-2xl font-black tracking-tight">Todo ARES, ahora en la web</h2></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{moduleCards.map(({id, icon:Icon, title, text, tone:t}) => <button key={id} onClick={() => go(id)} className="group flex min-h-36 items-start gap-4 rounded-[22px] border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-1 hover:border-blue-200 hover:shadow-[0_14px_35px_rgba(37,99,235,.09)]"><span className={`flex size-12 shrink-0 items-center justify-center rounded-2xl ${tone[t]}`}><Icon className="size-5" /></span><span><b className="text-base font-extrabold text-slate-900">{title}</b><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{text}</span><span className="mt-3 inline-flex items-center text-xs font-extrabold text-blue-600">Abrir módulo <ChevronRight className="size-3.5 transition group-hover:translate-x-1" /></span></span></button>)}</div></section>
-
-    <section className="grid gap-3 sm:grid-cols-2"><button onClick={() => onTool("bot")} className="flex items-center gap-4 rounded-[22px] border border-teal-100 bg-teal-50 p-5 text-left"><span className="flex size-12 items-center justify-center rounded-2xl bg-teal-700 text-white"><Bot className="size-5" /></span><span><b className="block text-teal-950">Configurar Bot Vigía</b><span className="text-sm text-teal-800">Alertas locales por mercado e intensidad ARES.</span></span></button><button onClick={() => onTool("stop")} className="flex items-center gap-4 rounded-[22px] border border-amber-100 bg-amber-50 p-5 text-left"><span className="flex size-12 items-center justify-center rounded-2xl bg-amber-600 text-white"><Target className="size-5" /></span><span><b className="block text-amber-950">Stop limit educativo</b><span className="text-sm text-amber-800">Comprende activación, límite y sus riesgos.</span></span></button></section>
+    <section className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-blue-600">Acceso directo</p><h2 className="mt-1 text-xl font-black tracking-tight text-[#10213e] sm:text-2xl">Elige tu mercado</h2></div><p className="max-w-md text-xs font-semibold leading-5 text-slate-500">Una estructura preparada para conectar Radar, Lanzaderas, IA y Watchlist en una experiencia unificada.</p></div>
+      <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-4">{markets.map(market=><button key={market.label} onClick={()=>go(market.id)} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-left transition hover:border-blue-200 hover:bg-blue-50"><span><b className="block text-sm font-extrabold text-slate-900">{market.label}</b><span className="text-[10px] font-bold text-slate-500">{market.detail}</span></span><ChevronRight className="size-4 text-blue-500"/></button>)}</div>
+    </section>
   </div>;
 }
 
