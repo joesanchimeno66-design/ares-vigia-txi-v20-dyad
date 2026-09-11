@@ -48,46 +48,71 @@ const markets: Record<string, Instrument[]> = {
   ].map(([symbol, label, name]) => ({ symbol, label, name })),
 };
 
-async function quote(instrument: Instrument) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(instrument.symbol)}?range=5d&interval=30m`;
-  const response = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 ARES-Vigia/13" } });
-  if (!response.ok) throw new Error(`Proveedor ${response.status}`);
-  const payload = await response.json();
-  const result = payload?.chart?.result?.[0];
-  const meta = result?.meta;
-  const closes: Array<number | null> = result?.indicators?.quote?.[0]?.close ?? [];
-  const timestamps: number[] = result?.timestamp ?? [];
-  const points = closes.flatMap((value, index) => value == null ? [] : [{
-    time: new Date((timestamps[index] ?? 0) * 1000).toISOString(),
-    value: Number(value.toFixed(6)),
-  }]);
-  const price = Number(meta?.regularMarketPrice ?? points.at(-1)?.value ?? 0);
-  const previous = Number(meta?.chartPreviousClose ?? meta?.previousClose ?? points.at(-2)?.value ?? price);
-  const change = previous ? ((price - previous) / previous) * 100 : 0;
-  return {
-    symbol: instrument.label,
-    ticker: instrument.symbol,
-    name: instrument.name,
-    price,
-    change: Number(change.toFixed(2)),
-    currency: meta?.currency ?? "",
-    exchange: meta?.exchangeName ?? "Mercado",
-    updatedAt: new Date((meta?.regularMarketTime ?? Date.now() / 1000) * 1000).toISOString(),
-    points: points.slice(-80),
-  };
+async function fetchYahooChart(instrument: Instrument) {
+  const hosts = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
+  let lastError = "sin respuesta";
+
+  for (const host of hosts) {
+    try {
+      const url = `https://${host}/v8/finance/chart/${encodeURIComponent(instrument.symbol)}?range=5d&interval=30m`;
+      const response = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0 ARES-Vigia/5" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) {
+        lastError = `${host}: HTTP ${response.status}`;
+        continue;
+      }
+      const payload = await response.json();
+      const result = payload?.chart?.result?.[0];
+      const meta = result?.meta;
+      const closes: Array<number | null> = result?.indicators?.quote?.[0]?.close ?? [];
+      const timestamps: number[] = result?.timestamp ?? [];
+      const points = closes.flatMap((value, index) => value == null ? [] : [{
+        time: new Date((timestamps[index] ?? 0) * 1000).toISOString(),
+        value: Number(value.toFixed(6)),
+      }]);
+      const price = Number(meta?.regularMarketPrice ?? points.at(-1)?.value ?? 0);
+      if (!Number.isFinite(price) || price <= 0 || points.length === 0) {
+        lastError = `${host}: cotización vacía`;
+        continue;
+      }
+      const previous = Number(meta?.chartPreviousClose ?? meta?.previousClose ?? points.at(-2)?.value ?? price);
+      const change = previous ? ((price - previous) / previous) * 100 : 0;
+      return {
+        symbol: instrument.label,
+        ticker: instrument.symbol,
+        name: instrument.name,
+        price,
+        change: Number(change.toFixed(2)),
+        currency: meta?.currency ?? "",
+        exchange: `Yahoo Finance · ${meta?.exchangeName ?? "mercado"}`,
+        updatedAt: new Date((meta?.regularMarketTime ?? Date.now() / 1000) * 1000).toISOString(),
+        points: points.slice(-80),
+      };
+    } catch (error) {
+      lastError = `${host}: ${error instanceof Error ? error.message : "error de conexión"}`;
+    }
+  }
+  throw new Error(lastError);
 }
 
 export default defineEventHandler(async (event) => {
   const requested = String(getQuery(event).market ?? "acciones").toLowerCase();
   const instruments = markets[requested];
-  if (!instruments) return { market: requested, items: [], error: "Mercado no válido" };
-  const results = await Promise.allSettled(instruments.map(quote));
+  if (!instruments) return { market: requested, mode: "error", provider: "ninguno", items: [], error: "Mercado no válido" };
+
+  const results = await Promise.allSettled(instruments.map(fetchYahooChart));
   const items = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+  const failures = results.length - items.length;
   return {
     market: requested,
-    source: "Yahoo Finance · consulta web segura",
+    mode: items.length === instruments.length ? "real" : items.length ? "mixto" : "respaldo",
+    provider: "Yahoo Finance (query1 + query2)",
     updatedAt: new Date().toISOString(),
+    requested: instruments.length,
+    failures,
     items,
-    error: items.length ? null : "El proveedor no ha devuelto datos en este momento",
+    error: items.length ? null : "Yahoo Finance no ha devuelto datos; usar modo respaldo local",
   };
 });

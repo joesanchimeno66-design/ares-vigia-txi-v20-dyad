@@ -57,7 +57,7 @@ const fallbackRows: Record<MarketId, (string | number)[][]> = {
 export const fallbackQuotes = Object.entries(fallbackRows).reduce((acc, [id, rows]) => {
   acc[id as MarketId] = rows.map(([symbol,name,price,change], row) => ({
     symbol: String(symbol), ticker: String(symbol), name: String(name), price: Number(price), change: Number(change),
-    currency: "", exchange: "Muestra de respaldo", updatedAt: new Date().toISOString(),
+    currency: "", exchange: "MODO RESPALDO · muestra local", updatedAt: new Date().toISOString(),
     points: Array.from({ length: 24 }, (_, i) => ({ time: new Date(Date.now() - (23-i)*1800000).toISOString(), value: Number(price) * (1 + Math.sin(i * .8 + row) * .006 + (i-12) * Number(change) / 10000) })),
   }));
   return acc;
