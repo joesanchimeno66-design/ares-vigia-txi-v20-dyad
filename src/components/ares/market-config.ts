@@ -42,26 +42,10 @@ export type MarketQuote = {
   currency: string; exchange: string; updatedAt: string; points: { time: string; value: number }[];
 };
 
-const fallbackRows: Record<MarketId, (string | number)[][]> = {
-  acciones: [["AAPL","Apple",227.16,1.42],["NVDA","NVIDIA",138.85,2.76],["MSFT","Microsoft",418.79,-0.34],["AMZN","Amazon",214.10,.91]],
-  europa: [["SAN","Banco Santander",4.72,.84],["IBE","Iberdrola",13.62,.36],["ITX","Inditex",49.18,-.22],["SAP","SAP",238.4,1.08]],
-  cripto: [["BTC","Bitcoin",96472,3.18],["ETH","Ethereum",3412,1.72],["SOL","Solana",189.28,-1.04],["XRP","XRP",2.18,.62]],
-  etfs: [["SPY","SPDR S&P 500 ETF",592.19,.68],["QQQ","Invesco QQQ",512.44,1.21],["VTI","Vanguard Total Market",298.72,.49],["IWM","iShares Russell 2000",221.3,-.28]],
-  fondos: [["VFIAX","Vanguard 500 Index",546.21,.61],["VTSAX","Vanguard Total Market",142.37,.44],["FXAIX","Fidelity 500 Index",207.82,.63],["SWPPX","Schwab S&P 500",91.52,.59]],
-  pequenas: [["SOUN","SoundHound AI",12.84,4.22],["BBAI","BigBear.ai",7.18,2.76],["LUNR","Intuitive Machines",13.42,-1.18],["RKLB","Rocket Lab",27.62,3.11]],
-  indices: [["S&P 500","S&P 500",5930.85,.73],["NASDAQ","Nasdaq Composite",19180.31,1.16],["DOW","Dow Jones",42635.2,.31],["DAX","DAX",20317.1,-.12]],
-  forex: [["EUR/USD","Euro / Dólar",1.0428,.22],["GBP/USD","Libra / Dólar",1.2531,-.18],["USD/JPY","Dólar / Yen",157.14,.44],["EUR/GBP","Euro / Libra",.8322,.09]],
-  materias: [["ORO","Oro",2648.3,.84],["PLATA","Plata",30.41,1.19],["WTI","Petróleo WTI",73.96,-1.37],["GAS","Gas natural",3.66,2.08]],
+export const fallbackQuotes: Record<MarketId, MarketQuote[]> = {
+  acciones: [], europa: [], cripto: [], etfs: [], fondos: [], pequenas: [],
+  indices: [], forex: [], materias: [],
 };
-
-export const fallbackQuotes = Object.entries(fallbackRows).reduce((acc, [id, rows]) => {
-  acc[id as MarketId] = rows.map(([symbol,name,price,change], row) => ({
-    symbol: String(symbol), ticker: String(symbol), name: String(name), price: Number(price), change: Number(change),
-    currency: "", exchange: "MODO RESPALDO · muestra local", updatedAt: new Date().toISOString(),
-    points: Array.from({ length: 24 }, (_, i) => ({ time: new Date(Date.now() - (23-i)*1800000).toISOString(), value: Number(price) * (1 + Math.sin(i * .8 + row) * .006 + (i-12) * Number(change) / 10000) })),
-  }));
-  return acc;
-}, {} as Record<MarketId, MarketQuote[]>);
 
 export const getFlight = (change: number) => change >= 2.5 ? { label: "DESPEGANDO", color: "emerald", score: 88 } : change >= .5 ? { label: "EN ASCENSO", color: "blue", score: 74 } : change <= -2.5 ? { label: "DESCENSO FUERTE", color: "rose", score: 28 } : change < -.5 ? { label: "DESCENDIENDO", color: "amber", score: 42 } : { label: "ESTABLE", color: "slate", score: 58 };
 
