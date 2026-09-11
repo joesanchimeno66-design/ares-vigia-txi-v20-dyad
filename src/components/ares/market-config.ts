@@ -46,8 +46,13 @@ export type MarketMetrics = {
 
 export type MarketQuote = {
   symbol: string; ticker: string; name: string; price: number; change: number;
-  currency: string; exchange: string; updatedAt: string; points: { time: string; value: number }[];
-  metrics: MarketMetrics;
+  currency: string; exchange: string; updatedAt: string; chartSymbol: string;
+  priceProvider?: string; changeProvider?: string; historyProvider?: string;
+  points: { time: string; value: number }[]; metrics: MarketMetrics;
+};
+
+export type MarketCandle = {
+  time: string; open: number; high: number; low: number; close: number; volume: number | null;
 };
 
 export const fallbackQuotes: Record<MarketId, MarketQuote[]> = {

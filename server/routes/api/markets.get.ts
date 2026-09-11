@@ -11,7 +11,9 @@ type Metrics = {
 };
 type Quote = {
   symbol: string; ticker: string; name: string; price: number; change: number;
-  currency: string; exchange: string; updatedAt: string; points: Point[]; metrics: Metrics;
+  currency: string; exchange: string; updatedAt: string; chartSymbol: string;
+  priceProvider: string; changeProvider: string; historyProvider: string;
+  points: Point[]; metrics: Metrics;
 };
 
 const tuples = (rows: string[][], suffix = "us", currency = "USD"): Instrument[] => rows.map(([symbol, name]) => ({
@@ -24,6 +26,11 @@ const usMarkets: Record<"acciones" | "etfs", Instrument[]> = {
     ["GOOGL","Alphabet"],["AMD","AMD"],["JPM","JPMorgan Chase"],["SAN","Banco Santander ADR"],["PLTR","Palantir"],["NFLX","Netflix"],
     ["AVGO","Broadcom"],["ORCL","Oracle"],["CRM","Salesforce"],["V","Visa"],["MA","Mastercard"],["XOM","ExxonMobil"],
     ["JNJ","Johnson & Johnson"],["WMT","Walmart"],["KO","Coca-Cola"],["DIS","Walt Disney"],["UBER","Uber"],["INTC","Intel"],
+    ["ADBE","Adobe"],["COST","Costco"],["CSCO","Cisco"],["NOW","ServiceNow"],["QCOM","Qualcomm"],["TXN","Texas Instruments"],
+    ["AMAT","Applied Materials"],["MU","Micron"],["PANW","Palo Alto Networks"],["INTU","Intuit"],["IBM","IBM"],["GE","GE Aerospace"],
+    ["CAT","Caterpillar"],["BA","Boeing"],["GS","Goldman Sachs"],["BAC","Bank of America"],["WFC","Wells Fargo"],["MS","Morgan Stanley"],
+    ["NKE","Nike"],["MCD","McDonald’s"],["SBUX","Starbucks"],["PEP","PepsiCo"],["CVX","Chevron"],["MRK","Merck"],
+    ["ABBV","AbbVie"],["LLY","Eli Lilly"],["PFE","Pfizer"],["UNH","UnitedHealth"],["HD","Home Depot"],["LOW","Lowe’s"],["T","AT&T"],["TMO","Thermo Fisher"],
   ]),
   etfs: tuples([
     ["SPY","SPDR S&P 500 ETF"],["QQQ","Invesco QQQ"],["VOO","Vanguard S&P 500"],["VTI","Vanguard Total Market"],
@@ -31,6 +38,12 @@ const usMarkets: Record<"acciones" | "etfs", Instrument[]> = {
     ["EFA","iShares MSCI EAFE"],["EEM","iShares Emerging Markets"],["XLK","Technology Select Sector"],["XLF","Financial Select Sector"],
     ["XLE","Energy Select Sector"],["XLV","Health Care Select Sector"],["GLD","SPDR Gold Shares"],["SLV","iShares Silver Trust"],
     ["TLT","iShares 20+ Year Treasury"],["HYG","iShares High Yield Bond"],["ARKK","ARK Innovation"],["IBIT","iShares Bitcoin Trust"],
+    ["SCHD","Schwab U.S. Dividend Equity"],["IVV","iShares Core S&P 500"],["VIG","Vanguard Dividend Appreciation"],["VYM","Vanguard High Dividend Yield"],
+    ["USMV","iShares MSCI USA Min Vol"],["ACWI","iShares MSCI ACWI"],["VT","Vanguard Total World"],["IEFA","iShares Core MSCI EAFE"],
+    ["IEMG","iShares Core Emerging Markets"],["BND","Vanguard Total Bond"],["AGG","iShares Core Aggregate Bond"],["LQD","iShares Investment Grade Bond"],
+    ["SHY","iShares 1-3 Year Treasury"],["IEF","iShares 7-10 Year Treasury"],["XBI","SPDR S&P Biotech"],["SMH","VanEck Semiconductor"],
+    ["SOXX","iShares Semiconductor"],["XLP","Consumer Staples Select Sector"],["XLU","Utilities Select Sector"],["XLY","Consumer Discretionary Select Sector"],
+    ["XLI","Industrial Select Sector"],["XLB","Materials Select Sector"],["GDX","VanEck Gold Miners"],["USO","United States Oil Fund"],
   ]),
 };
 
@@ -47,6 +60,12 @@ const europeRows: string[][] = [
   ["HEIA.AS","HEIA","Heineken","heia.nl","EUR"],["WKL.AS","WKL","Wolters Kluwer","wkl.nl","EUR"],
   ["SHEL.L","SHEL","Shell","shel.uk","GBX"],["AZN.L","AZN","AstraZeneca","azn.uk","GBX"],["HSBA.L","HSBA","HSBC","hsba.uk","GBX"],["ULVR.L","ULVR","Unilever","ulvr.uk","GBX"],
   ["BP.L","BP","BP","bp.uk","GBX"],["GSK.L","GSK","GSK","gsk.uk","GBX"],["RR.L","RR","Rolls-Royce","rr.uk","GBX"],["BARC.L","BARC","Barclays","barc.uk","GBX"],
+  ["EDP.LS","EDP","EDP","edp.pt","EUR"],["GALP.LS","GALP","Galp Energia","galp.pt","EUR"],["JMT.LS","JMT","Jerónimo Martins","jmt.pt","EUR"],
+  ["ABI.BR","ABI","AB InBev","abi.be","EUR"],["KBC.BR","KBC","KBC Group","kbc.be","EUR"],["UCB.BR","UCB","UCB","ucb.be","EUR"],
+  ["NESN.SW","NESN","Nestlé","nesn.ch","CHF"],["NOVN.SW","NOVN","Novartis","novn.ch","CHF"],["ROG.SW","ROG","Roche","rog.ch","CHF"],["UBSG.SW","UBSG","UBS","ubs.ch","CHF"],
+  ["NOVO-B.CO","NOVO B","Novo Nordisk","novo-b.dk","DKK"],["MAERSK-B.CO","MAERSK B","A.P. Moller-Maersk","maersk-b.dk","DKK"],["VWS.CO","VWS","Vestas","vws.dk","DKK"],
+  ["ERIC-B.ST","ERIC B","Ericsson","eric-b.se","SEK"],["VOLV-B.ST","VOLV B","Volvo","volv-b.se","SEK"],["ATCO-A.ST","ATCO A","Atlas Copco","atco-a.se","SEK"],
+  ["NOKIA.HE","NOKIA","Nokia","nokia.fi","EUR"],["KNEBV.HE","KNEBV","KONE","knebv.fi","EUR"],["FORTUM.HE","FORTUM","Fortum","fortum.fi","EUR"],
 ];
 const european: Instrument[] = europeRows.map(([symbol,label,name,stooq,currency]) => ({ symbol,label,name,stooq,currency }));
 
@@ -55,6 +74,10 @@ const crypto: Instrument[] = [
   ["cardano","ADA","Cardano"],["dogecoin","DOGE","Dogecoin"],["tron","TRX","TRON"],["the-open-network","TON","Toncoin"],["avalanche-2","AVAX","Avalanche"],
   ["polkadot","DOT","Polkadot"],["chainlink","LINK","Chainlink"],["litecoin","LTC","Litecoin"],["shiba-inu","SHIB","Shiba Inu"],["uniswap","UNI","Uniswap"],
   ["cosmos","ATOM","Cosmos"],["stellar","XLM","Stellar"],["near","NEAR","NEAR"],["ethereum-classic","ETC","Ethereum Classic"],["hyperliquid","HYPE","Hyperliquid"],
+  ["sui","SUI","Sui"],["aptos","APT","Aptos"],["internet-computer","ICP","Internet Computer"],["hedera-hashgraph","HBAR","Hedera"],["pepe","PEPE","Pepe"],
+  ["dai","DAI","Dai"],["crypto-com-chain","CRO","Cronos"],["render-token","RENDER","Render"],["arbitrum","ARB","Arbitrum"],["optimism","OP","Optimism"],
+  ["injective-protocol","INJ","Injective"],["aave","AAVE","Aave"],["maker","MKR","Maker"],["algorand","ALGO","Algorand"],["vechain","VET","VeChain"],
+  ["filecoin","FIL","Filecoin"],["lido-staked-ether","STETH","Lido Staked Ether"],["wrapped-bitcoin","WBTC","Wrapped Bitcoin"],["bittensor","TAO","Bittensor"],["kaspa","KAS","Kaspa"],
 ].map(([symbol,label,name]) => ({ symbol,label,name,currency:"USD" }));
 
 const forex: Instrument[] = [
@@ -101,31 +124,68 @@ function metrics(points: Point[], intraday: number | null): Metrics {
 function parseLines(text:string){const rows=new Map<string,string>();for(const raw of text.replace(/\r|\n/g,"").split(";")){if(!raw.includes("="))continue;const [left,...right]=raw.split("=");const key=left.trim().replace("var ","").replace("hq_str_","").replace("v_","").toLowerCase();const value=right.join("=").trim().replace(/^"|"$/g,"");if(key&&value)rows.set(key,value);}return rows;}
 async function providerText(url:string,referer:string){const response=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0 ARES-Vigia/13",Referer:referer,Accept:"*/*"},signal:AbortSignal.timeout(12000)});if(!response.ok)throw new Error(`HTTP ${response.status}`);return new TextDecoder("gbk").decode(await response.arrayBuffer());}
 async function tencent(codes:string[]){return providerText(`https://qt.gtimg.cn/q=${codes.join(",")}`,"https://gu.qq.com/");}
+async function sina(codes:string[]){return providerText(`https://hq.sinajs.cn/list=${codes.join(",")}`,"https://finance.sina.com.cn/");}
+
+type LiveQuote = { price: number; change: number; updatedAt: string; provider: string };
+const deriveChange=(price:number,previous:number|null,reported:number|null)=>previous!==null&&previous>0?pct(price,previous)??0:reported??0;
+
+async function eastmoneyQuote(instrument:Instrument):Promise<LiveQuote>{
+  const suggest=new URL("https://searchapi.eastmoney.com/api/suggest/get");suggest.searchParams.set("input",instrument.symbol);suggest.searchParams.set("type","14");suggest.searchParams.set("token","D43BF722C8E33BDC906FB84D85E326E8");
+  const searchResponse=await fetch(suggest,{headers:{Accept:"application/json",Referer:"https://quote.eastmoney.com/"},signal:AbortSignal.timeout(8000)});if(!searchResponse.ok)throw new Error(`Eastmoney búsqueda HTTP ${searchResponse.status}`);
+  const search=await searchResponse.json() as {QuotationCodeTable?:{Data?:Array<{Code?:string;QuoteID?:string}>}};const candidates=search.QuotationCodeTable?.Data??[];const exact=candidates.find(item=>String(item.Code??"").toUpperCase()===instrument.symbol.toUpperCase());const secid=exact?.QuoteID;if(!secid)throw new Error("Eastmoney sin identificador");
+  const response=await fetch(`https://push2.eastmoney.com/api/qt/stock/get?secid=${encodeURIComponent(secid)}&fields=f43,f59,f60,f124,f170`,{headers:{Accept:"application/json",Referer:"https://quote.eastmoney.com/"},signal:AbortSignal.timeout(8000)});if(!response.ok)throw new Error(`Eastmoney HTTP ${response.status}`);const payload=await response.json() as {data?:Record<string,unknown>};const data=payload.data;if(!data)throw new Error("Eastmoney sin cotización");const decimals=num(data.f59)??2,scale=10**decimals,priceRaw=num(data.f43),previousRaw=num(data.f60);if(priceRaw===null||priceRaw<=0)throw new Error("Eastmoney precio inválido");const price=priceRaw/scale,previous=previousRaw!==null?previousRaw/scale:null,reportedRaw=num(data.f170);const change=deriveChange(price,previous,reportedRaw!==null?reportedRaw/100:null);const epoch=num(data.f124);return{price,change,updatedAt:epoch&&epoch>0?new Date(epoch*1000).toISOString():new Date().toISOString(),provider:"Eastmoney"};
+}
+
+const historyCache=new Map<string,{expires:number;points:Point[]}>();
+async function settleBatched<T,R>(items:T[],worker:(item:T)=>Promise<R>,size=8){
+  const output:PromiseSettledResult<R>[]=[];
+  for(let index=0;index<items.length;index+=size){
+    const batch=items.slice(index,index+size);
+    output.push(...await Promise.all(batch.map(async item=>{try{return{status:"fulfilled",value:await worker(item)} as PromiseFulfilledResult<R>;}catch(reason){return{status:"rejected",reason} as PromiseRejectedResult;}})));
+  }
+  return output;
+}
 
 async function stooqHistory(symbol:string):Promise<Point[]>{
+  const cached=historyCache.get(symbol);if(cached&&cached.expires>Date.now())return cached.points;
   const end=new Date(),start=new Date(Date.now()-380*86400000);const d=(x:Date)=>x.toISOString().slice(0,10).replace(/-/g,"");
   const url=`https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&d1=${d(start)}&d2=${d(end)}&i=d`;
   const response=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0 ARES-Vigia/13"},signal:AbortSignal.timeout(12000)});if(!response.ok)throw new Error(`Stooq HTTP ${response.status}`);
-  const lines=(await response.text()).trim().split(/\r?\n/).slice(1);return lines.flatMap(line=>{const f=line.split(","),value=num(f[4]);return value!==null&&value>0&&/^\d{4}-\d{2}-\d{2}$/.test(f[0])?[{time:`${f[0]}T16:00:00Z`,value}]:[];});
+  const lines=(await response.text()).trim().split(/\r?\n/).slice(1);const points=lines.flatMap(line=>{const f=line.split(","),value=num(f[4]);return value!==null&&value>0&&/^\d{4}-\d{2}-\d{2}$/.test(f[0])?[{time:`${f[0]}T16:00:00Z`,value}]:[];});if(points.length)historyCache.set(symbol,{expires:Date.now()+5*60_000,points});return points;
 }
-async function stooqQuote(instrument:Instrument):Promise<Quote>{
-  const points=await stooqHistory(instrument.stooq??instrument.symbol);if(!points.length)throw new Error("Stooq sin histórico");const price=points.at(-1)!.value;const change=pct(price,points.at(-2)?.value)??0;const updatedAt=points.at(-1)!.time;
-  return {symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:instrument.currency??"",exchange:"Stooq · mercado público",updatedAt,points,metrics:metrics(points,change)};
+async function yahooQuote(instrument:Instrument):Promise<Quote>{
+  const response=await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(instrument.symbol)}?range=1y&interval=1d`,{headers:{Accept:"application/json","User-Agent":"Mozilla/5.0 ARES-Vigia/13"},signal:AbortSignal.timeout(10000)});if(!response.ok)throw new Error(`Yahoo respaldo HTTP ${response.status}`);const payload=await response.json() as {chart?:{result?:Array<{meta?:Record<string,unknown>;timestamp?:number[];indicators?:{quote?:Array<{close?:Array<number|null>}>}}>} };const result=payload.chart?.result?.[0];const meta=result?.meta;const timestamps=result?.timestamp??[],closes=result?.indicators?.quote?.[0]?.close??[];const points=timestamps.flatMap((stamp,index)=>{const value=num(closes[index]);return value!==null&&value>0?[{time:new Date(stamp*1000).toISOString(),value}]:[];});const price=num(meta?.regularMarketPrice)??points.at(-1)?.value;if(!price||!points.length)throw new Error("Yahoo respaldo sin datos");const previous=num(meta?.chartPreviousClose)??points.at(-2)?.value;const change=deriveChange(price,previous??null,null);const epoch=num(meta?.regularMarketTime);const updatedAt=epoch?new Date(epoch*1000).toISOString():points.at(-1)!.time;const series=[...points.slice(0,-1),{time:updatedAt,value:price}];return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:instrument.currency??String(meta?.currency??""),exchange:"Yahoo Finance · respaldo final",updatedAt,chartSymbol:instrument.symbol,priceProvider:"Yahoo (respaldo)",changeProvider:"Yahoo (respaldo, precio vs. cierre previo)",historyProvider:"Yahoo (respaldo)",points:series,metrics:metrics(series,change)};
 }
-async function stooqSet(instruments:Instrument[]){const results=await Promise.allSettled(instruments.map(stooqQuote));return results.flatMap(r=>r.status==="fulfilled"?[r.value]:[]);}
+async function preferredQuote(instrument:Instrument):Promise<Quote>{
+  let history:Point[]=[];try{history=await stooqHistory(instrument.stooq??instrument.symbol);}catch{history=[];}
+  try{const live=await eastmoneyQuote(instrument);const points=history.length?[...history.slice(0,-1),{time:live.updatedAt,value:live.price}]:[{time:live.updatedAt,value:live.price}];return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price:live.price,change:live.change,currency:instrument.currency??"",exchange:"Eastmoney · cotización / Stooq · serie",updatedAt:live.updatedAt,chartSymbol:instrument.stooq??instrument.symbol,priceProvider:"Eastmoney",changeProvider:"Eastmoney (precio vs. cierre previo)",historyProvider:history.length?"Stooq":"Eastmoney (solo punto actual)",points,metrics:metrics(points,live.change)};}catch{if(history.length){const price=history.at(-1)!.value,change=pct(price,history.at(-2)?.value)??0,updatedAt=history.at(-1)!.time;return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:instrument.currency??"",exchange:"Stooq · mercado público",updatedAt,chartSymbol:instrument.stooq??instrument.symbol,priceProvider:"Stooq",changeProvider:"Stooq (cierre vs. cierre previo)",historyProvider:"Stooq",points:history,metrics:metrics(history,change)};}return yahooQuote(instrument);}
+}
+async function stooqSet(instruments:Instrument[]){const results=await settleBatched(instruments,preferredQuote);return results.flatMap(r=>r.status==="fulfilled"?[r.value]:[]);}
 async function usSet(market:"acciones"|"etfs"){
-  const instruments=usMarkets[market];let rows=new Map<string,string>();try{rows=parseLines(await tencent(instruments.map(i=>i.code!)));}catch{rows=new Map();}
-  const histories=await Promise.allSettled(instruments.map(i=>stooqHistory(i.stooq!)));
-  return instruments.flatMap((instrument,index)=>{const f=rows.get(instrument.code!.toLowerCase())?.split("~")??[];const livePrice=num(f[3]),liveChange=num(f[32]);const history=histories[index].status==="fulfilled"?histories[index].value:[];const price=livePrice??history.at(-1)?.value;if(!price)return[];const change=liveChange??pct(price,history.at(-2)?.value)??0;const raw=f[30];const updatedAt=/^\d{14}$/.test(raw??"")?`${raw.slice(0,4)}-${raw.slice(4,6)}-${raw.slice(6,8)}T${raw.slice(8,10)}:${raw.slice(10,12)}:${raw.slice(12,14)}-04:00`:history.at(-1)?.time??new Date().toISOString();const points=history.length?[...history.slice(0,-1),{time:updatedAt,value:price}]:[{time:updatedAt,value:price}];const exchange=livePrice!==null?"Tencent Finance · mercado USA":"Stooq · mercado público";return[{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:"USD",exchange,updatedAt,points,metrics:metrics(points,change)}];});
+  const instruments=usMarkets[market];let tencentRows=new Map<string,string>(),sinaRows=new Map<string,string>();
+  try{tencentRows=parseLines(await tencent(instruments.map(i=>i.code!)));}catch{tencentRows=new Map();}
+  try{sinaRows=parseLines(await sina(instruments.map(i=>`gb_${i.symbol.toLowerCase()}`)));}catch{sinaRows=new Map();}
+  const results=await settleBatched(instruments,async(instrument):Promise<Quote>=>{
+    let history:Point[]=[];try{history=await stooqHistory(instrument.stooq!);}catch{history=[];}
+    const tf=tencentRows.get(instrument.code!.toLowerCase())?.split("~")??[];const tPrice=num(tf[3]),tPrevious=num(tf[4]);
+    const sf=sinaRows.get(`gb_${instrument.symbol.toLowerCase()}`)?.split(",")??[];const sPrice=num(sf[1]);
+    let live:LiveQuote|null=null;
+    if(tPrice!==null&&tPrice>0){const raw=tf[30];live={price:tPrice,change:deriveChange(tPrice,tPrevious,num(tf[32])),updatedAt:/^\d{14}$/.test(raw??"")?`${raw.slice(0,4)}-${raw.slice(4,6)}-${raw.slice(6,8)}T${raw.slice(8,10)}:${raw.slice(10,12)}:${raw.slice(12,14)}-04:00`:new Date().toISOString(),provider:"Tencent"};}
+    else if(sPrice!==null&&sPrice>0){live={price:sPrice,change:deriveChange(sPrice,null,num(sf[2])),updatedAt:sf[3]&&Number.isFinite(Date.parse(sf[3]))?new Date(sf[3]).toISOString():new Date().toISOString(),provider:"Sina"};}
+    else{try{live=await eastmoneyQuote(instrument);}catch{live=null;}}
+    if(!live){if(history.length){const price=history.at(-1)!.value,change=pct(price,history.at(-2)?.value)??0,updatedAt=history.at(-1)!.time;return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:"USD",exchange:"Stooq · mercado público",updatedAt,chartSymbol:instrument.stooq!,priceProvider:"Stooq",changeProvider:"Stooq (cierre vs. cierre previo)",historyProvider:"Stooq",points:history,metrics:metrics(history,change)};}return yahooQuote(instrument);}
+    const points=history.length?[...history.slice(0,-1),{time:live.updatedAt,value:live.price}]:[{time:live.updatedAt,value:live.price}];return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price:live.price,change:live.change,currency:"USD",exchange:`${live.provider} · mercado USA`,updatedAt:live.updatedAt,chartSymbol:instrument.stooq!,priceProvider:live.provider,changeProvider:`${live.provider} (precio vs. cierre previo)`,historyProvider:history.length?"Stooq":`${live.provider} (solo punto actual)`,points,metrics:metrics(points,live.change)};
+  });
+  return results.flatMap(result=>result.status==="fulfilled"?[result.value]:[]);
 }
 async function coinGecko(){
   const url=new URL("https://api.coingecko.com/api/v3/coins/markets");url.searchParams.set("vs_currency","usd");url.searchParams.set("ids",crypto.map(i=>i.symbol).join(","));url.searchParams.set("sparkline","true");url.searchParams.set("price_change_percentage","1h,24h,7d,30d,1y");url.searchParams.set("precision","full");
   const response=await fetch(url,{headers:{Accept:"application/json"},signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error(`CoinGecko HTTP ${response.status}`);const payload=await response.json();const byId=new Map((Array.isArray(payload)?payload:[]).map(i=>[String(i.id),i]));
-  return crypto.flatMap(instrument=>{const item=byId.get(instrument.symbol);const price=num(item?.current_price),change=num(item?.price_change_percentage_24h);if(price===null||price<=0||change===null)return[];const raw:Array<number>=Array.isArray(item?.sparkline_in_7d?.price)?item.sparkline_in_7d.price:[];const end=Date.parse(item?.last_updated??"")||Date.now(),step=raw.length>1?7*86400000/(raw.length-1):0;const points=raw.flatMap((value,index)=>Number.isFinite(value)?[{time:new Date(end-(raw.length-1-index)*step).toISOString(),value}]:[]).slice(-168);const m=metrics(points,change);m.returns.week=num(item?.price_change_percentage_7d_in_currency);m.returns.month=num(item?.price_change_percentage_30d_in_currency);m.returns.year=num(item?.price_change_percentage_1y_in_currency);return[{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:"USD",exchange:"CoinGecko · mercado cripto",updatedAt:new Date(end).toISOString(),points:points.length?points:[{time:new Date(end).toISOString(),value:price}],metrics:m}];});
+  return crypto.flatMap(instrument=>{const item=byId.get(instrument.symbol);const price=num(item?.current_price),change=num(item?.price_change_percentage_24h);if(price===null||price<=0||change===null)return[];const raw:Array<number>=Array.isArray(item?.sparkline_in_7d?.price)?item.sparkline_in_7d.price:[];const end=Date.parse(item?.last_updated??"")||Date.now(),step=raw.length>1?7*86400000/(raw.length-1):0;const points=raw.flatMap((value,index)=>Number.isFinite(value)?[{time:new Date(end-(raw.length-1-index)*step).toISOString(),value}]:[]).slice(-168);const m=metrics(points,change);m.returns.week=num(item?.price_change_percentage_7d_in_currency);m.returns.month=num(item?.price_change_percentage_30d_in_currency);m.returns.year=num(item?.price_change_percentage_1y_in_currency);return[{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:"USD",exchange:"CoinGecko · mercado cripto",updatedAt:new Date(end).toISOString(),chartSymbol:instrument.symbol,priceProvider:"CoinGecko",changeProvider:"CoinGecko (24 h)",historyProvider:"CoinGecko (sparkline 7 días)",points:points.length?points:[{time:new Date(end).toISOString(),value:price}],metrics:m}];});
 }
-async function tencentForex(){const rows=parseLines(await tencent(forex.map(i=>i.code!)));const histories=await Promise.allSettled(forex.map(i=>stooqHistory(i.stooq!)));return forex.flatMap((instrument,index)=>{const f=rows.get(instrument.code!.toLowerCase())?.split("~")??[];const price=num(f[3]);if(price===null||price<=0)return[];const points=histories[index].status==="fulfilled"?histories[index].value:[];const change=num(f[13])??pct(price,points.at(-2)?.value)??0;const updatedAt=new Date().toISOString();const series=points.length?[...points.slice(0,-1),{time:updatedAt,value:price}]:[{time:updatedAt,value:price}];return[{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:"",exchange:"Tencent Finance · FOREX",updatedAt,points:series,metrics:metrics(series,change)}];});}
+async function tencentForex(){const rows=parseLines(await tencent(forex.map(i=>i.code!)));const histories=await settleBatched(forex,i=>stooqHistory(i.stooq!));return forex.flatMap((instrument,index)=>{const f=rows.get(instrument.code!.toLowerCase())?.split("~")??[];const price=num(f[3]),previous=num(f[4]);if(price===null||price<=0)return[];const points=histories[index].status==="fulfilled"?histories[index].value:[];const change=deriveChange(price,previous,num(f[13]));const updatedAt=new Date().toISOString();const series=points.length?[...points.slice(0,-1),{time:updatedAt,value:price}]:[{time:updatedAt,value:price}];return[{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:"",exchange:"Tencent Finance · FOREX",updatedAt,chartSymbol:instrument.stooq!,priceProvider:"Tencent",changeProvider:"Tencent (precio vs. cierre previo)",historyProvider:points.length?"Stooq":"Tencent (solo punto actual)",points:series,metrics:metrics(series,change)}];});}
 async function commoditySet(){
-  const histories=await Promise.allSettled(commodities.map(item=>stooqHistory(item.stooq!)));
+  const histories=await settleBatched(commodities,item=>stooqHistory(item.stooq!));
   for(const host of ["Tencent","Sina"] as const){
     try{
       const text=host==="Tencent"?await tencent(commodities.map(i=>i.code!)):await providerText(`https://hq.sinajs.cn/list=${commodities.map(i=>i.code!).join(",")}`,"https://finance.sina.com.cn/");
@@ -134,13 +194,13 @@ async function commoditySet(){
         const f=rows.get(instrument.code!.toLowerCase())?.split(",")??[];const price=num(f[0]),change=num(f[1]);if(price===null||price<=0||change===null)return[];
         const updatedAt=f[12]&&f[6]?`${f[12]}T${f[6]}+08:00`:new Date().toISOString();const history=histories[index].status==="fulfilled"?histories[index].value:[];
         const points=history.length?[...history.slice(0,-1),{time:updatedAt,value:price}]:[{time:updatedAt,value:price}];
-        return[{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:"USD",exchange:`${host} Finance · materias primas`,updatedAt,points,metrics:metrics(points,change)}];
+        return[{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:"USD",exchange:`${host} Finance · materias primas`,updatedAt,chartSymbol:instrument.stooq!,priceProvider:host,changeProvider:`${host} (variación publicada)`,historyProvider:history.length?"Stooq":`${host} (solo punto actual)`,points,metrics:metrics(points,change)}];
       });
       if(items.length)return items;
     }catch{continue;}
   }
   return[];
 }
-async function load(market:string){if(market==="acciones"||market==="etfs")return{requested:usMarkets[market].length,items:await usSet(market),providers:["Tencent Finance","Stooq"]};if(market==="europa")return{requested:european.length,items:await stooqSet(european),providers:["Stooq"]};if(market==="cripto")return{requested:crypto.length,items:await coinGecko(),providers:["CoinGecko"]};if(market==="indices")return{requested:indices.length,items:await stooqSet(indices),providers:["Stooq"]};if(market==="forex")return{requested:forex.length,items:await tencentForex(),providers:["Tencent Finance","Stooq"]};if(market==="materias")return{requested:commodities.length,items:await commoditySet(),providers:["Tencent Finance","Sina Finance"]};if(market==="fondos")return{requested:funds.length,items:await stooqSet(funds),providers:["Stooq"]};if(market==="pequenas")return{requested:smallCaps.length,items:await stooqSet(smallCaps),providers:["Stooq"]};return{requested:0,items:[] as Quote[],providers:[] as string[]};}
+async function load(market:string){if(market==="acciones"||market==="etfs")return{requested:usMarkets[market].length,items:await usSet(market)};if(market==="europa")return{requested:european.length,items:await stooqSet(european)};if(market==="cripto")return{requested:crypto.length,items:await coinGecko()};if(market==="indices")return{requested:indices.length,items:await stooqSet(indices)};if(market==="forex")return{requested:forex.length,items:await tencentForex()};if(market==="materias")return{requested:commodities.length,items:await commoditySet()};if(market==="fondos")return{requested:funds.length,items:await stooqSet(funds)};if(market==="pequenas")return{requested:smallCaps.length,items:await stooqSet(smallCaps)};return{requested:0,items:[] as Quote[]};}
 
-export default defineHandler(async(event)=>{const market=String(getQuery(event).market??"acciones").toLowerCase();try{const{requested,items,providers}=await load(market);if(!requested)return{market,mode:"error",provider:"ninguno",items:[],requested:0,failures:0,error:"Mercado no válido"};const failures=requested-items.length;return{market,mode:items.length===requested?"real":items.length?"mixto":"sin-datos",provider:providers.join(" / "),updatedAt:new Date().toISOString(),requested,failures,items,error:items.length?null:"SIN DATOS – FUENTE NO DISPONIBLE"};}catch(error){return{market,mode:"sin-datos",provider:"fuentes alternativas no disponibles",updatedAt:new Date().toISOString(),requested:0,failures:0,items:[],error:`SIN DATOS – FUENTE NO DISPONIBLE${error instanceof Error?` · ${error.message}`:""}`};}});
+export default defineHandler(async(event)=>{const market=String(getQuery(event).market??"acciones").toLowerCase();try{const{requested,items}=await load(market);if(!requested)return{market,mode:"error",provider:"ninguno",items:[],requested:0,failures:0,error:"Mercado no válido"};const failures=requested-items.length;const providers=[...new Set(items.map(item=>item.priceProvider??item.exchange))];return{market,mode:items.length===requested?"real":items.length?"mixto":"sin-datos",provider:providers.join(" / ")||"fuente no disponible",updatedAt:new Date().toISOString(),requested,failures,items,error:items.length?null:"SIN DATOS – FUENTE NO DISPONIBLE"};}catch(error){return{market,mode:"sin-datos",provider:"fuentes alternativas no disponibles",updatedAt:new Date().toISOString(),requested:0,failures:0,items:[],error:`SIN DATOS – FUENTE NO DISPONIBLE${error instanceof Error?` · ${error.message}`:""}`};}});
