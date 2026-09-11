@@ -1,5 +1,5 @@
-import { MarketDashboard } from "@/components/MarketDashboard";
+import { AresVigiaApp } from "@/components/ares/AresVigiaApp";
 
-const Index = () => <MarketDashboard />;
+const Index = () => <AresVigiaApp />;
 
 export default Index;
