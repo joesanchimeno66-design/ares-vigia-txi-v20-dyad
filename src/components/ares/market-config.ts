@@ -37,9 +37,17 @@ export const moduleCards = [
   { id: "telegram" as SectionId, icon: MessageCircle, title: "Alertas", text: "Centro de avisos, Bot Vigía y canal Telegram.", tone: "rose" },
 ];
 
+export type MarketMetrics = {
+  returns: { intraday: number | null; week: number | null; month: number | null; sixMonths: number | null; year: number | null };
+  ema9: number | null; ema21: number | null; rsi14: number | null; macd: number | null;
+  macdSignal: number | null; macdHistogram: number | null; bollingerZ: number | null;
+  volatility: number | null; trend: "alcista" | "bajista" | "lateral"; samples: number;
+};
+
 export type MarketQuote = {
   symbol: string; ticker: string; name: string; price: number; change: number;
   currency: string; exchange: string; updatedAt: string; points: { time: string; value: number }[];
+  metrics: MarketMetrics;
 };
 
 export const fallbackQuotes: Record<MarketId, MarketQuote[]> = {
@@ -47,7 +55,21 @@ export const fallbackQuotes: Record<MarketId, MarketQuote[]> = {
   indices: [], forex: [], materias: [],
 };
 
-export const getFlight = (change: number) => change >= 2.5 ? { label: "DESPEGANDO", color: "emerald", score: 88 } : change >= .5 ? { label: "EN ASCENSO", color: "blue", score: 74 } : change <= -2.5 ? { label: "DESCENSO FUERTE", color: "rose", score: 28 } : change < -.5 ? { label: "DESCENDIENDO", color: "amber", score: 42 } : { label: "ESTABLE", color: "slate", score: 58 };
+export const getQuoteChange = (quote: MarketQuote, horizon: number) => {
+  const returns = quote.metrics?.returns;
+  return [returns?.intraday, returns?.week, returns?.month, returns?.sixMonths, returns?.year][horizon] ?? null;
+};
+
+export const getFlight = (change: number | null, quote?: MarketQuote) => {
+  if (change === null) return { label: "SIN PERIODO", color: "slate", score: null };
+  const metrics = quote?.metrics;
+  let score = 50 + Math.max(-24, Math.min(24, change * 8));
+  if (metrics?.ema9 !== null && metrics?.ema21 !== null) score += metrics.ema9 > metrics.ema21 ? 8 : -8;
+  if (metrics?.rsi14 !== null) score += metrics.rsi14 >= 52 && metrics.rsi14 <= 72 ? 6 : metrics.rsi14 > 82 ? -7 : metrics.rsi14 < 35 ? -4 : 0;
+  if (metrics?.macdHistogram !== null) score += metrics.macdHistogram > 0 ? 5 : -5;
+  score = Math.round(Math.max(0, Math.min(100, score)));
+  return score >= 75 ? { label: "DESPEGANDO", color: "emerald", score } : score >= 58 ? { label: "EN ASCENSO", color: "blue", score } : score <= 25 ? { label: "DESCENSO FUERTE", color: "rose", score } : score <= 42 ? { label: "DESCENDIENDO", color: "amber", score } : { label: "ESTABLE", color: "slate", score };
+};
 
 export const formatPrice = (quote: MarketQuote) => new Intl.NumberFormat("es-ES", { minimumFractionDigits: quote.price < 10 ? 4 : 2, maximumFractionDigits: quote.price < 10 ? 5 : 2 }).format(quote.price);
 
