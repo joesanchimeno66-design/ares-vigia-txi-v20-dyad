@@ -15,13 +15,13 @@ function numeric(value: unknown) {
 
 function validateSymbol(value: unknown) {
   const symbol = String(value ?? "").toLowerCase();
-  if (!/^[a-z0-9.^_-]{1,80}$/.test(symbol)) throw createError({ statusCode: 400, statusMessage: "Símbolo no válido" });
+  if (!/^[a-z0-9.^_/-]{1,80}$/.test(symbol)) throw createError({ statusCode: 400, statusMessage: "Símbolo no válido" });
   return symbol;
 }
 
 function validateTicker(value: unknown) {
   const ticker = String(value ?? "").toUpperCase();
-  if (!/^[A-Z0-9.^_-]{1,30}$/.test(ticker)) throw createError({ statusCode: 400, statusMessage: "Ticker no válido" });
+  if (!/^[A-Z0-9.^_/-]{1,30}$/.test(ticker)) throw createError({ statusCode: 400, statusMessage: "Ticker no válido" });
   return ticker;
 }
 
