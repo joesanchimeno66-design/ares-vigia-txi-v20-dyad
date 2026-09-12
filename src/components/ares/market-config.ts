@@ -65,7 +65,8 @@ export const fallbackQuotes: Record<MarketId, MarketQuote[]> = {
 
 export const getQuoteChange = (quote: MarketQuote, horizon: number) => {
   const returns = quote.metrics?.returns;
-  return [returns?.intraday, returns?.week, returns?.month, returns?.sixMonths, returns?.year][horizon] ?? null;
+  const intraday = Number.isFinite(quote.change) ? quote.change : returns?.intraday;
+  return [intraday, returns?.week, returns?.month, returns?.sixMonths, returns?.year][horizon] ?? null;
 };
 
 export const getFlight = (change: number | null, quote?: MarketQuote) => {
