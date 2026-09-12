@@ -1,17 +1,18 @@
 import {
   BadgeDollarSign, BarChart3, Bitcoin, BookOpen, Bot, BrainCircuit, BriefcaseBusiness, Building2,
-  CircleDollarSign, Gem, Globe2, House, Landmark, Layers3, MessageCircle,
+  CircleDollarSign, Gem, Globe2, GraduationCap, House, Landmark, Layers3, MessageCircle,
   Radar, ShieldCheck, Sparkles, type LucideIcon,
 } from "lucide-react";
 
 export type MarketId = "acciones" | "europa" | "cripto" | "etfs" | "fondos" | "pequenas" | "indices" | "forex" | "materias";
-export type SectionId = "inicio" | MarketId | "portfolio" | "escudo" | "telegram" | "ia" | "guia";
+export type SectionId = "inicio" | MarketId | "portfolio" | "bot-academy" | "escudo" | "telegram" | "ia" | "guia";
 
 export type NavItem = { id: SectionId; label: string; short: string; icon: LucideIcon; description: string };
 
 export const navItems: NavItem[] = [
   { id: "inicio", label: "Inicio", short: "Inicio", icon: House, description: "Centro de mando ARES V13" },
   { id: "portfolio", label: "Portfolio", short: "Portfolio", icon: BriefcaseBusiness, description: "Seguimiento y análisis de cartera" },
+  { id: "bot-academy", label: "Bot Academy", short: "Academy", icon: GraduationCap, description: "Aprende, configura y simula bots" },
   { id: "acciones", label: "Acciones", short: "Acciones", icon: BarChart3, description: "Radar USA · cinco horizontes" },
   { id: "europa", label: "Europa", short: "Europa", icon: Globe2, description: "Cotización nativa europea" },
   { id: "cripto", label: "Criptomonedas", short: "Cripto", icon: Bitcoin, description: "Mercado digital 24/7" },
