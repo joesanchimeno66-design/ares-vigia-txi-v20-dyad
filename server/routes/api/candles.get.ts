@@ -98,19 +98,6 @@ async function stooqCandles(symbol: string, horizon: number): Promise<CandleResu
   return ensureCoverage({ candles, provider: "Stooq · respaldo OHLC", resolution: "1 día" }, horizon);
 }
 
-async function yahooCandles(ticker: string, horizon: number): Promise<CandleResult> {
-  const range = (["5d", "1mo", "3mo", "1y", "2y"] as const)[horizon];
-  const interval = horizon === 0 ? "5m" : "1d";
-  const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=${interval}`, {
-    headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 ARES-Vigia/13" }, signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`Yahoo respaldo HTTP ${response.status}`);
-  const payload = await response.json() as { chart?: { result?: Array<{ timestamp?: number[]; indicators?: { quote?: Array<{ open?: Array<number | null>; high?: Array<number | null>; low?: Array<number | null>; close?: Array<number | null>; volume?: Array<number | null> }> } }> } };
-  const result = payload.chart?.result?.[0], quote = result?.indicators?.quote?.[0], stamps = result?.timestamp ?? [];
-  const candles = stamps.flatMap((stamp, index): Candle[] => validCandle(new Date(stamp * 1000).toISOString(), numeric(quote?.open?.[index]), numeric(quote?.high?.[index]), numeric(quote?.low?.[index]), numeric(quote?.close?.[index]), numeric(quote?.volume?.[index])));
-  return ensureCoverage({ candles, provider: "Yahoo Finance · último respaldo OHLC", resolution: horizon === 0 ? "5 minutos" : "1 día" }, horizon);
-}
-
 async function cryptoCandles(id: string, horizon: number): Promise<CandleResult> {
   const days = ([1, 7, 30, 365, 365] as const)[horizon];
   const response = await fetch(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/ohlc?vs_currency=usd&days=${days}`, {
@@ -140,7 +127,6 @@ export default defineHandler(async (event) => {
         () => tencentCandles(ticker, horizon),
         () => eastmoneyCandles(ticker, horizon),
         () => stooqCandles(symbol, horizon),
-        () => yahooCandles(ticker, horizon),
       ];
       let selected: CandleResult | null = null;
       for (const provider of providers) {
@@ -153,8 +139,8 @@ export default defineHandler(async (event) => {
     return { market, symbol, ticker, horizon, ...result, updatedAt: new Date().toISOString(), error: null };
   } catch (error) {
     return {
-      market, symbol, ticker, horizon, candles: [], provider: market === "cripto" ? "CoinGecko" : "Tencent / Eastmoney / Stooq / Yahoo (último respaldo)", resolution: "no disponible",
-      updatedAt: new Date().toISOString(), error: `SIN DATOS OHLC – FUENTE NO DISPONIBLE${error instanceof Error ? ` · ${error.message}` : ""}`,
+      market, symbol, ticker, horizon, candles: [], provider: market === "cripto" ? "CoinGecko" : "Tencent / Eastmoney / Stooq", resolution: "no disponible",
+      updatedAt: new Date().toISOString(), error: `SIN DATOS — FUENTE NO DISPONIBLE${error instanceof Error ? ` · ${error.message}` : ""}`,
     };
   }
 });
