@@ -41,7 +41,7 @@ export const moduleCards = [
 ];
 
 export type MarketMetrics = {
-  returns: { intraday: number | null; week: number | null; month: number | null; threeMonths: number | null; sixMonths: number | null; year: number | null };
+  returns: { intraday: number | null; week: number | null; tenDays: number | null; twentyDays: number | null; thirtyDays: number | null; month: number | null; threeMonths: number | null; sixMonths: number | null; year: number | null };
   ema9: number | null; ema21: number | null; emaSlope: number | null; rsi14: number | null; macd: number | null;
   macdSignal: number | null; macdHistogram: number | null; bollingerZ: number | null; bollingerExpansion: number | null;
   volumeRatio: number | null; volumeTrend: number | null; support: number | null; resistance: number | null;
@@ -65,9 +65,17 @@ export const fallbackQuotes: Record<MarketId, MarketQuote[]> = {
   indices: [], forex: [], materias: [],
 };
 
-export const getQuoteChange = (quote: MarketQuote, horizon: number) => {
+const standardHorizonLabels = ["INTRADÍA", "5 DÍAS", "3 MESES", "6 MESES", "1 AÑO"];
+const cryptoHorizonLabels = ["24 HORAS", "10 DÍAS", "20 DÍAS", "30 DÍAS", "1 AÑO"];
+
+export const getHorizonLabels = (market: MarketId) => market === "cripto" ? cryptoHorizonLabels : standardHorizonLabels;
+
+export const getQuoteChange = (quote: MarketQuote, horizon: number, market?: MarketId) => {
   const returns = quote.metrics?.returns;
-  return [returns?.intraday, returns?.week, returns?.month, returns?.sixMonths, returns?.year][horizon] ?? null;
+  const periods = market === "cripto"
+    ? [returns?.intraday, returns?.tenDays, returns?.twentyDays, returns?.thirtyDays, returns?.year]
+    : [returns?.intraday, returns?.week, returns?.threeMonths, returns?.sixMonths, returns?.year];
+  return periods[horizon] ?? null;
 };
 
 export type FlightAnalysis = {
@@ -79,9 +87,9 @@ export type FlightAnalysis = {
   categories: { name: string; score: number; max: number }[];
 };
 
-export const getFlight = (_change: number | null, quote?: MarketQuote): FlightAnalysis => {
+export const getFlight = (change: number | null, quote?: MarketQuote, market?: MarketId): FlightAnalysis => {
   const metrics = quote?.metrics;
-  if (!quote || !metrics || metrics.samples < 9) return { label: "SIN DATOS", color: "slate", score: null, reasons: ["Serie histórica insuficiente para aplicar ARES V20."], invalidations: ["La lectura no es válida sin suficientes observaciones reales."], categories: [] };
+  if (!quote || !metrics || change === null || metrics.samples < 9) return { label: "SIN DATOS", color: "slate", score: null, reasons: ["Serie histórica insuficiente para aplicar ARES V20."], invalidations: ["La lectura no es válida sin suficientes observaciones reales."], categories: [] };
   const reasons: string[] = [];
   const invalidations: string[] = [];
   const categories: FlightAnalysis["categories"] = [];
@@ -91,9 +99,10 @@ export const getFlight = (_change: number | null, quote?: MarketQuote): FlightAn
   if (metrics.ema9 != null && metrics.ema21 != null && metrics.ema9 > metrics.ema21) { trend += 8; reasons.push("EMA 9 por encima de EMA 21."); } else invalidations.push("Cruce bajista de EMA 9 bajo EMA 21.");
   if (metrics.ema9 != null && metrics.ema21 != null && quote.price > metrics.ema9 && quote.price > metrics.ema21) { trend += 6; reasons.push("Precio por encima de ambas medias."); } else invalidations.push("Cierre por debajo de EMA 9 o EMA 21.");
   if (metrics.emaSlope != null && metrics.emaSlope > 0) { trend += 5; reasons.push("Pendiente de EMA 9 positiva."); } else invalidations.push("La pendiente de corto plazo deja de ser positiva.");
-  const trendHorizons = [metrics.returns.intraday, metrics.returns.week, metrics.returns.threeMonths].filter((value): value is number => value != null);
+  const periodAnchors = market === "cripto" ? [metrics.returns.tenDays, metrics.returns.thirtyDays] : [metrics.returns.week, metrics.returns.threeMonths];
+  const trendHorizons = [change, ...periodAnchors].filter((value): value is number => value != null);
   const positiveTrendHorizons = trendHorizons.filter(value => value > 0).length;
-  if (positiveTrendHorizons >= 2) { trend += 6; reasons.push("Tendencia confirmada en varios horizontes."); } else if (positiveTrendHorizons === 1) trend += 3;
+  if (positiveTrendHorizons >= 2) { trend += 6; reasons.push("El horizonte seleccionado confirma la tendencia real."); } else if (positiveTrendHorizons === 1) trend += 3;
   add("Tendencia", trend, 25);
 
   let volume = 0;
@@ -128,9 +137,10 @@ export const getFlight = (_change: number | null, quote?: MarketQuote): FlightAn
   add("Volatilidad", volatility, 5);
 
   let multi = 0;
-  const core = [metrics.returns.intraday, metrics.returns.week, metrics.returns.threeMonths];
-  if (core.every(value => value != null && value > 0)) { multi += 7; reasons.push("1D, 5D y 3M alineados al alza."); }
-  else invalidations.push("Se requiere alineación positiva simultánea en 1D, 5D y 3M.");
+  const core = [change, ...periodAnchors];
+  const alignmentLabel = market === "cripto" ? "10D y 30D" : "5D y 3M";
+  if (core.every(value => value != null && value > 0)) { multi += 7; reasons.push(`El periodo seleccionado, ${alignmentLabel} están alineados al alza.`); }
+  else invalidations.push(`El periodo seleccionado debe confirmar la alineación positiva de ${alignmentLabel}.`);
   const longTerm = [metrics.returns.sixMonths, metrics.returns.year].filter((value): value is number => value != null);
   if (longTerm.length && longTerm.every(value => value > 0)) { multi += 3; reasons.push("6M y 1Y acompañan la señal."); }
   add("Multihorizonte", multi, 10);

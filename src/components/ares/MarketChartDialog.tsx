@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Activity, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { MarketCandle, MarketId, MarketQuote } from "./market-config";
+import { getHorizonLabels, type MarketCandle, type MarketId, type MarketQuote } from "./market-config";
 import { CandlestickChart } from "./CandlestickChart";
 
 type Props = {
@@ -16,8 +16,6 @@ type CandleResponse = {
   resolution: string;
   error?: string | null;
 };
-
-const horizonLabels = ["INTRADÍA", "1 SEMANA", "1 MES", "6 MESES", "1 AÑO"];
 
 export function MarketChartDialog({ chart, onClose }: Props) {
   const [response, setResponse] = useState<CandleResponse | null>(null);
@@ -34,6 +32,7 @@ export function MarketChartDialog({ chart, onClose }: Props) {
     endpoint.searchParams.set("market", chart.market);
     endpoint.searchParams.set("symbol", chart.quote.chartSymbol);
     endpoint.searchParams.set("ticker", chart.quote.ticker);
+    endpoint.searchParams.set("asset", chart.quote.symbol);
     endpoint.searchParams.set("horizon", String(chart.horizon));
     setLoading(true);
     setResponse(null);
@@ -62,7 +61,7 @@ export function MarketChartDialog({ chart, onClose }: Props) {
     <DialogContent className="max-w-5xl rounded-[24px] border-slate-200 p-0">
       <DialogHeader className="border-b border-slate-100 p-5">
         <DialogTitle className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><Activity className="size-5"/></span>{chart?.quote.symbol} · {chart?.quote.name}</DialogTitle>
-        <DialogDescription>{chart ? horizonLabels[chart.horizon] : ""} · {loading ? "Consultando OHLC real…" : response ? `${response.provider} · ${response.resolution} · ${candles.length} velas reales` : "Preparando histórico…"}</DialogDescription>
+        <DialogDescription>{chart ? getHorizonLabels(chart.market)[chart.horizon] : ""} · {loading ? "Consultando OHLC real…" : response ? `${response.provider} · ${response.resolution} · ${candles.length} velas reales` : "Preparando histórico…"}</DialogDescription>
       </DialogHeader>
       <div className="p-5">
         <div className="mb-4 flex flex-wrap gap-2">

@@ -6,8 +6,10 @@ type Candle = { time: string; open: number; high: number; low: number; close: nu
 type CandleResult = { candles: Candle[]; provider: string; resolution: string };
 
 const allowedMarkets = new Set(["acciones", "europa", "cripto", "etfs", "fondos", "pequenas", "indices", "forex", "materias"]);
-const horizonDays = [2, 10, 45, 210, 390];
-const minimumCandles = [3, 5, 20, 45, 60];
+const horizonDays = [2, 10, 100, 200, 380];
+const minimumCandles = [3, 5, 45, 90, 180];
+const cryptoMinimumCandles = [2, 20, 40, 60, 60];
+const nyseSymbols = new Set(["ABBV", "BAC", "BA", "BBAI", "CAT", "CRM", "CVX", "DIS", "GE", "GS", "HD", "IBM", "IONQ", "JNJ", "JPM", "KO", "LLY", "LOW", "MA", "MCD", "MRK", "MS", "NKE", "NOW", "ORCL", "PFE", "SAN", "T", "TMO", "UBER", "UNH", "V", "WFC", "WMT", "XOM"]);
 
 function numeric(value: unknown) {
   const parsed = Number(String(value ?? "").replace(",", "."));
@@ -32,16 +34,16 @@ function validCandle(time: string, open: number | null, high: number | null, low
   return [{ time: parsedTime, open, high, low, close, volume }];
 }
 
-function ensureCoverage(result: CandleResult, horizon: number) {
+function ensureCoverage(result: CandleResult, horizon: number, minimum = minimumCandles[horizon]) {
   const unique = [...new Map(result.candles.map((candle) => [candle.time, candle])).values()].sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
-  if (unique.length < minimumCandles[horizon]) throw new Error(`${result.provider}: histórico insuficiente (${unique.length}/${minimumCandles[horizon]})`);
+  if (unique.length < minimum) throw new Error(`${result.provider}: histórico insuficiente (${unique.length}/${minimum})`);
   return { ...result, candles: unique };
 }
 
 async function tencentCandles(ticker: string, horizon: number): Promise<CandleResult> {
   const code = `us${ticker}`;
   const period = horizon === 0 ? "m5" : "day";
-  const limit = horizon === 0 ? 320 : [0, 12, 50, 220, 420][horizon];
+  const limit = horizon === 0 ? 320 : [0, 12, 100, 220, 420][horizon];
   const response = await fetch(`https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${encodeURIComponent(`${code},${period},,,${limit},qfq`)}`, {
     headers: { Accept: "application/json", Referer: "https://gu.qq.com/", "User-Agent": "Mozilla/5.0 ARES-Vigia/13" }, signal: AbortSignal.timeout(12_000),
   });
@@ -72,7 +74,7 @@ async function eastmoneySecid(ticker: string) {
 async function eastmoneyCandles(ticker: string, horizon: number): Promise<CandleResult> {
   const secid = await eastmoneySecid(ticker);
   const interval = horizon === 0 ? 5 : 101;
-  const limit = horizon === 0 ? 320 : [0, 12, 50, 220, 420][horizon];
+  const limit = horizon === 0 ? 320 : [0, 12, 100, 220, 420][horizon];
   const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${encodeURIComponent(secid)}&klt=${interval}&fqt=1&lmt=${limit}&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56`;
   const response = await fetch(url, { headers: { Accept: "application/json", Referer: "https://quote.eastmoney.com/" }, signal: AbortSignal.timeout(12_000) });
   if (!response.ok) throw new Error(`Eastmoney OHLC HTTP ${response.status}`);
@@ -86,7 +88,8 @@ async function eastmoneyCandles(ticker: string, horizon: number): Promise<Candle
 
 function tradingViewSymbol(market: string, ticker: string) {
   if (market === "etfs") return `${ticker === "QQQ" ? "NASDAQ" : "AMEX"}:${ticker}`;
-  if (market === "fondos" || market === "acciones" || market === "pequenas") return `NASDAQ:${ticker}`;
+  if (market === "acciones" || market === "pequenas") return `${nyseSymbols.has(ticker) ? "NYSE" : "NASDAQ"}:${ticker}`;
+  if (market === "fondos") return `NASDAQ:${ticker}`;
   if (market === "forex") return `OANDA:${ticker.replace("/", "")}`;
   if (market === "europa") {
     const [base, suffix] = ticker.split(".");
@@ -124,17 +127,44 @@ async function stooqCandles(symbol: string, horizon: number): Promise<CandleResu
   return ensureCoverage({ candles, provider: "Stooq · respaldo OHLC", resolution: "1 día" }, horizon);
 }
 
+async function binanceCryptoCandles(asset: string, horizon: number): Promise<CandleResult> {
+  const interval = horizon === 0 ? "30m" : horizon === 4 ? "1d" : "4h";
+  const limit = ([48, 60, 120, 180, 365] as const)[horizon];
+  const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(`${asset}USDT`)}&interval=${interval}&limit=${limit}`, {
+    headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`Binance HTTP ${response.status}`);
+  const payload = await response.json();
+  const candles = (Array.isArray(payload) ? payload : []).flatMap((row): Candle[] => Array.isArray(row) ? validCandle(new Date(Number(row[0])).toISOString(), numeric(row[1]), numeric(row[2]), numeric(row[3]), numeric(row[4]), numeric(row[5])) : []);
+  return ensureCoverage({ candles, provider: "Binance · OHLC real", resolution: horizon === 0 ? "30 minutos" : horizon === 4 ? "1 día" : "4 horas" }, horizon, cryptoMinimumCandles[horizon]);
+}
+
+async function cryptoCompareCandles(asset: string, horizon: number): Promise<CandleResult> {
+  const endpoint = horizon === 0 ? "histominute" : horizon === 4 ? "histoday" : "histohour";
+  const aggregate = horizon === 0 ? 30 : horizon === 4 ? 1 : 4;
+  const limit = ([48, 60, 120, 180, 365] as const)[horizon];
+  const response = await fetch(`https://min-api.cryptocompare.com/data/v2/${endpoint}?fsym=${encodeURIComponent(asset)}&tsym=USD&aggregate=${aggregate}&limit=${limit}`, {
+    headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`CryptoCompare HTTP ${response.status}`);
+  const payload = await response.json() as { Response?: string; Data?: { Data?: Array<Record<string, unknown>> } };
+  if (payload.Response === "Error") throw new Error("CryptoCompare sin activo");
+  const candles = (payload.Data?.Data ?? []).flatMap((row): Candle[] => validCandle(new Date(Number(row.time) * 1000).toISOString(), numeric(row.open), numeric(row.high), numeric(row.low), numeric(row.close), numeric(row.volumeto)));
+  return ensureCoverage({ candles, provider: "CryptoCompare · OHLC real", resolution: horizon === 0 ? "30 minutos" : horizon === 4 ? "1 día" : "4 horas" }, horizon, cryptoMinimumCandles[horizon]);
+}
+
 async function cryptoCandles(id: string, horizon: number): Promise<CandleResult> {
-  const days = ([1, 7, 30, 365, 365] as const)[horizon];
-  const response = await fetch(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/ohlc?vs_currency=usd&days=${days}`, {
+  const requestedDays = ([1, 30, 30, 30, 365] as const)[horizon];
+  const periodDays = ([1, 10, 20, 30, 365] as const)[horizon];
+  const response = await fetch(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/ohlc?vs_currency=usd&days=${requestedDays}`, {
     headers: { Accept: "application/json" }, signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`CoinGecko HTTP ${response.status}`);
   const payload = await response.json();
   let candles = (Array.isArray(payload) ? payload : []).flatMap((row): Candle[] => Array.isArray(row) && row.length >= 5 ? validCandle(new Date(Number(row[0])).toISOString(), numeric(row[1]), numeric(row[2]), numeric(row[3]), numeric(row[4]), null) : []);
-  if (horizon === 3) candles = candles.filter((item) => Date.parse(item.time) >= Date.now() - 190 * 86_400_000);
-  const resolution = horizon === 0 ? "30 minutos" : horizon === 1 ? "4 horas" : "4 días";
-  return ensureCoverage({ candles, provider: "CoinGecko · OHLC real", resolution }, horizon);
+  if (horizon > 0 && horizon < 4) candles = candles.filter((item) => Date.parse(item.time) >= Date.now() - periodDays * 86_400_000);
+  const resolution = horizon === 0 ? "30 minutos" : horizon < 4 ? "4 horas" : "4 días";
+  return ensureCoverage({ candles, provider: "CoinGecko · OHLC real", resolution }, horizon, cryptoMinimumCandles[horizon]);
 }
 
 export default defineHandler(async (event) => {
@@ -143,12 +173,20 @@ export default defineHandler(async (event) => {
   if (!allowedMarkets.has(market)) throw createError({ statusCode: 400, statusMessage: "Mercado no válido" });
   const symbol = validateSymbol(query.symbol);
   const ticker = validateTicker(query.ticker ?? query.symbol);
+  const asset = validateTicker(query.asset ?? query.ticker ?? query.symbol);
   const horizon = Math.max(0, Math.min(4, Number.parseInt(String(query.horizon ?? "0"), 10) || 0));
   const errors: string[] = [];
   try {
     let result: CandleResult;
-    if (market === "cripto") result = await cryptoCandles(symbol, horizon);
-    else {
+    if (market === "cripto") {
+      let selected: CandleResult | null = null;
+      for (const provider of [() => binanceCryptoCandles(asset, horizon), () => cryptoCompareCandles(asset, horizon), () => cryptoCandles(symbol, horizon)]) {
+        try { selected = await provider(); break; }
+        catch (error) { errors.push(error instanceof Error ? error.message : "fuente no disponible"); }
+      }
+      if (!selected) throw new Error(errors.join(" · "));
+      result = selected;
+    } else {
       const providers = [
         () => tencentCandles(ticker, horizon),
         () => eastmoneyCandles(ticker, horizon),
@@ -166,7 +204,7 @@ export default defineHandler(async (event) => {
     return { market, symbol, ticker, horizon, ...result, updatedAt: new Date().toISOString(), error: null };
   } catch (error) {
     return {
-      market, symbol, ticker, horizon, candles: [], provider: market === "cripto" ? "CoinGecko" : "Tencent / Eastmoney / TradingView / Stooq", resolution: "no disponible",
+      market, symbol, ticker, horizon, candles: [], provider: market === "cripto" ? "Binance / CryptoCompare / CoinGecko" : "Tencent / Eastmoney / TradingView / Stooq", resolution: "no disponible",
       updatedAt: new Date().toISOString(), error: `SIN DATOS — FUENTE NO DISPONIBLE${error instanceof Error ? ` · ${error.message}` : ""}`,
     };
   }
