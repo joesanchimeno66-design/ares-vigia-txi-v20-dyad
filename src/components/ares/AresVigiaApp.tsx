@@ -32,27 +32,6 @@ const tone: Record<string, string> = {
 
 const horizonLabels = ["INTRADÍA", "1 SEMANA", "1 MES", "6 MESES", "1 AÑO"];
 
-function normalizeMarketItems(items: unknown): MarketQuote[] {
-  if (!Array.isArray(items)) return [];
-  return items.flatMap((raw): MarketQuote[] => {
-    if (!raw || typeof raw !== "object") return [];
-    const item = raw as MarketQuote;
-    const price = Number(item.price), change = Number(item.change);
-    if (!item.symbol || !item.ticker || !item.name || !Number.isFinite(price) || price <= 0 || !Number.isFinite(change) || !item.metrics?.returns) return [];
-    const rawIntraday = item.metrics.returns.intraday;
-    const intraday = rawIntraday === null || rawIntraday === undefined ? change : Number(rawIntraday);
-    return [{
-      ...item,
-      price,
-      change,
-      metrics: {
-        ...item.metrics,
-        returns: { ...item.metrics.returns, intraday: Number.isFinite(intraday) ? intraday : change },
-      },
-    }];
-  });
-}
-
 function csvCell(value: string | number | null) {
   const text = value === null ? "" : String(value);
   const safe = /^[=+@-]/.test(text) ? `'${text}` : text;
@@ -209,45 +188,7 @@ export function AresVigiaApp() {
   const [alerts,setAlerts]=useState<AlertItem[]>(()=>JSON.parse(localStorage.getItem("ares-alerts")||"[]")); const [alertsOpen,setAlertsOpen]=useState(false); const [tool,setTool]=useState<"bot"|"stop"|null>(null); const [botActive,setBotActive]=useState(false); const [threshold,setThreshold]=useState(75); const [now,setNow]=useState(new Date());
   const current=navItems.find(n=>n.id===section)!;
   useEffect(()=>{const timer=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(timer)},[]);
-  const refresh=async(id:MarketId)=>{
-    setLoading(v=>({...v,[id]:true}));
-    try {
-      const endpoint=new URL("/api/markets",window.location.origin);
-      endpoint.searchParams.set("market",id);
-      const response=await fetch(endpoint,{headers:{Accept:"application/json"},cache:"no-store"});
-      const contentType=response.headers.get("content-type")||"";
-      if(!response.ok||!contentType.includes("application/json"))throw new Error(response.ok?"La ruta de datos devolvió HTML en lugar de JSON":`HTTP ${response.status}`);
-      const data:MarketResponse=await response.json();
-      const items=normalizeMarketItems(data.items);
-      if(items.length){
-        setQuotes(v=>({...v,[id]:items}));
-        setLive(v=>({...v,[id]:true}));
-        setProviderStatus(v=>({...v,[id]:{mode:data.mode,provider:`PROVEEDOR: ${data.provider}`,detail:data.mode==="mixto"?`MODO PARCIAL · ${items.length} de ${data.requested??items.length} activos reales`:"DATOS REALES"}}));
-        toast.success(`${items.length} activos reales actualizados · ${data.provider}`);
-        if(botActive){
-          const hits=items.filter(q=>getFlight(q.change,q).score>=threshold);
-          if(hits.length){
-            const item={id:Date.now(),text:`Bot Vigía · ${id}: ${hits.map(q=>q.symbol).join(", ")} supera ARES ${threshold}`,time:new Date().toISOString()};
-            setAlerts(v=>[item,...v].slice(0,30));
-            void fetch("/api/telegram",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:item.text})}).catch(()=>undefined);
-          }
-        }
-      }else{
-        setQuotes(v=>({...v,[id]:[]}));
-        setLive(v=>({...v,[id]:false}));
-        setProviderStatus(v=>({...v,[id]:{mode:"sin-datos",provider:`PROVEEDOR: ${data.provider||"fuente no disponible"}`,detail:"SIN DATOS – FUENTE NO DISPONIBLE"}}));
-        toast.warning("SIN DATOS – FUENTE NO DISPONIBLE");
-      }
-    }catch(error){
-      setQuotes(v=>({...v,[id]:[]}));
-      setLive(v=>({...v,[id]:false}));
-      const detail=error instanceof Error?error.message:"error de conexión";
-      setProviderStatus(v=>({...v,[id]:{mode:"sin-datos",provider:"PROVEEDOR: fuentes alternativas no disponibles",detail:`SIN DATOS – FUENTE NO DISPONIBLE · ${detail}`}}));
-      toast.warning("SIN DATOS – FUENTE NO DISPONIBLE");
-    }finally{
-      setLoading(v=>({...v,[id]:false}));
-    }
-  };
+  const refresh=async(id:MarketId)=>{setLoading(v=>({...v,[id]:true}));try{const endpoint=new URL("/api/markets",window.location.origin);endpoint.searchParams.set("market",id);const response=await fetch(endpoint,{headers:{Accept:"application/json"},cache:"no-store"});const contentType=response.headers.get("content-type")||"";if(!response.ok||!contentType.includes("application/json"))throw new Error(response.ok?"La ruta de datos devolvió HTML en lugar de JSON":`HTTP ${response.status}`);const data:MarketResponse=await response.json();if(data.items?.length){setQuotes(v=>({...v,[id]:data.items}));setLive(v=>({...v,[id]:true}));setProviderStatus(v=>({...v,[id]:{mode:data.mode,provider:`PROVEEDOR: ${data.provider}`,detail:data.mode==="mixto"?`MODO PARCIAL · ${data.items.length} de ${data.requested??data.items.length} activos reales`:"DATOS REALES"}}));toast.success(`${data.items.length} activos reales actualizados · ${data.provider}`);if(botActive){const hits=data.items.filter(q=>getFlight(q.change,q).score>=threshold);if(hits.length){const item={id:Date.now(),text:`Bot Vigía · ${id}: ${hits.map(q=>q.symbol).join(", ")} supera ARES ${threshold}`,time:new Date().toISOString()};setAlerts(v=>[item,...v].slice(0,30));void fetch("/api/telegram",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:item.text})}).catch(()=>undefined);}}}else{setQuotes(v=>({...v,[id]:[]}));setLive(v=>({...v,[id]:false}));setProviderStatus(v=>({...v,[id]:{mode:"sin-datos",provider:`PROVEEDOR: ${data.provider||"fuente no disponible"}`,detail:"SIN DATOS – FUENTE NO DISPONIBLE"}}));toast.warning("SIN DATOS – FUENTE NO DISPONIBLE");}}catch(error){setQuotes(v=>({...v,[id]:[]}));setLive(v=>({...v,[id]:false}));const detail=error instanceof Error?error.message:"error de conexión";setProviderStatus(v=>({...v,[id]:{mode:"sin-datos",provider:"PROVEEDOR: fuentes alternativas no disponibles",detail:`SIN DATOS – FUENTE NO DISPONIBLE · ${detail}`}}));toast.warning("SIN DATOS – FUENTE NO DISPONIBLE");}finally{setLoading(v=>({...v,[id]:false}));}};
   useEffect(()=>{if(marketIds.has(section)&&!live[section as MarketId]&&!loading[section as MarketId])void refresh(section as MarketId)},[section]);
   useEffect(()=>{if(!marketIds.has(section))return;const timer=window.setInterval(()=>void refresh(section as MarketId),60_000);return()=>window.clearInterval(timer)},[section,botActive,threshold]);
   useEffect(()=>localStorage.setItem("ares-watchlist",JSON.stringify(watchlist)),[watchlist]); useEffect(()=>localStorage.setItem("ares-alerts",JSON.stringify(alerts)),[alerts]);
