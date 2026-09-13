@@ -41,17 +41,19 @@ export const moduleCards = [
 ];
 
 export type MarketMetrics = {
-  returns: { intraday: number | null; week: number | null; month: number | null; sixMonths: number | null; year: number | null };
-  ema9: number | null; ema21: number | null; rsi14: number | null; macd: number | null;
-  macdSignal: number | null; macdHistogram: number | null; bollingerZ: number | null;
-  volatility: number | null; trend: "alcista" | "bajista" | "lateral" | null; samples: number;
+  returns: { intraday: number | null; week: number | null; month: number | null; threeMonths: number | null; sixMonths: number | null; year: number | null };
+  ema9: number | null; ema21: number | null; emaSlope: number | null; rsi14: number | null; macd: number | null;
+  macdSignal: number | null; macdHistogram: number | null; bollingerZ: number | null; bollingerExpansion: number | null;
+  volumeRatio: number | null; volumeTrend: number | null; support: number | null; resistance: number | null;
+  breakoutPct: number | null; failedBreakout: boolean; volatility: number | null;
+  trend: "alcista" | "bajista" | "lateral" | null; samples: number;
 };
 
 export type MarketQuote = {
   symbol: string; ticker: string; name: string; price: number; change: number;
   currency: string; exchange: string; updatedAt: string; chartSymbol: string;
   priceProvider?: string; changeProvider?: string; historyProvider?: string;
-  points: { time: string; value: number }[]; metrics: MarketMetrics;
+  points: { time: string; value: number; volume?: number | null }[]; metrics: MarketMetrics;
 };
 
 export type MarketCandle = {
@@ -68,15 +70,78 @@ export const getQuoteChange = (quote: MarketQuote, horizon: number) => {
   return [returns?.intraday, returns?.week, returns?.month, returns?.sixMonths, returns?.year][horizon] ?? null;
 };
 
-export const getFlight = (change: number | null, quote?: MarketQuote) => {
-  if (change === null) return { label: "SIN PERIODO", color: "slate", score: null };
+export type FlightAnalysis = {
+  label: "SIN SEÑAL" | "VIGILAR" | "PREPARANDO" | "LANZADERA ACTIVA" | "LANZADERA FUERTE" | "SIN DATOS";
+  color: "slate" | "amber" | "blue" | "emerald" | "violet";
+  score: number | null;
+  reasons: string[];
+  invalidations: string[];
+  categories: { name: string; score: number; max: number }[];
+};
+
+export const getFlight = (_change: number | null, quote?: MarketQuote): FlightAnalysis => {
   const metrics = quote?.metrics;
-  let score = 50 + Math.max(-24, Math.min(24, change * 8));
-  if (metrics?.ema9 != null && metrics.ema21 != null) score += metrics.ema9 > metrics.ema21 ? 8 : -8;
-  if (metrics?.rsi14 != null) score += metrics.rsi14 >= 52 && metrics.rsi14 <= 72 ? 6 : metrics.rsi14 > 82 ? -7 : metrics.rsi14 < 35 ? -4 : 0;
-  if (metrics?.macdHistogram != null) score += metrics.macdHistogram > 0 ? 5 : -5;
-  score = Math.round(Math.max(0, Math.min(100, score)));
-  return score >= 75 ? { label: "DESPEGANDO", color: "emerald", score } : score >= 58 ? { label: "EN ASCENSO", color: "blue", score } : score <= 25 ? { label: "DESCENSO FUERTE", color: "rose", score } : score <= 42 ? { label: "DESCENDIENDO", color: "amber", score } : { label: "ESTABLE", color: "slate", score };
+  if (!quote || !metrics || metrics.samples < 9) return { label: "SIN DATOS", color: "slate", score: null, reasons: ["Serie histórica insuficiente para aplicar ARES V20."], invalidations: ["La lectura no es válida sin suficientes observaciones reales."], categories: [] };
+  const reasons: string[] = [];
+  const invalidations: string[] = [];
+  const categories: FlightAnalysis["categories"] = [];
+  const add = (name: string, score: number, max: number) => categories.push({ name, score: Math.max(0, Math.min(max, score)), max });
+
+  let trend = 0;
+  if (metrics.ema9 != null && metrics.ema21 != null && metrics.ema9 > metrics.ema21) { trend += 8; reasons.push("EMA 9 por encima de EMA 21."); } else invalidations.push("Cruce bajista de EMA 9 bajo EMA 21.");
+  if (metrics.ema9 != null && metrics.ema21 != null && quote.price > metrics.ema9 && quote.price > metrics.ema21) { trend += 6; reasons.push("Precio por encima de ambas medias."); } else invalidations.push("Cierre por debajo de EMA 9 o EMA 21.");
+  if (metrics.emaSlope != null && metrics.emaSlope > 0) { trend += 5; reasons.push("Pendiente de EMA 9 positiva."); } else invalidations.push("La pendiente de corto plazo deja de ser positiva.");
+  const trendHorizons = [metrics.returns.intraday, metrics.returns.week, metrics.returns.threeMonths].filter((value): value is number => value != null);
+  const positiveTrendHorizons = trendHorizons.filter(value => value > 0).length;
+  if (positiveTrendHorizons >= 2) { trend += 6; reasons.push("Tendencia confirmada en varios horizontes."); } else if (positiveTrendHorizons === 1) trend += 3;
+  add("Tendencia", trend, 25);
+
+  let volume = 0;
+  if (metrics.volumeRatio != null && metrics.volumeRatio >= 1.2) { volume += 8; reasons.push(`Volumen ${metrics.volumeRatio.toFixed(1)}× sobre su media.`); } else invalidations.push("La ruptura pierde validez si el volumen no supera su media.");
+  if (metrics.volumeTrend != null && metrics.volumeTrend > 0) { volume += 5; reasons.push("Entrada de volumen creciente."); }
+  if ((metrics.breakoutPct ?? -1) > 0 && (metrics.volumeRatio ?? 0) >= 1.2) { volume += 7; reasons.push("Ruptura confirmada por volumen."); }
+  add("Volumen", volume, 20);
+
+  let momentum = 0;
+  if (metrics.rsi14 != null && metrics.rsi14 >= 52 && metrics.rsi14 <= 70) { momentum += 8; reasons.push(`RSI ${metrics.rsi14.toFixed(1)} en zona de impulso saludable.`); }
+  if (metrics.rsi14 != null && metrics.rsi14 < 78) momentum += 3; else invalidations.push("RSI en sobrecompra extrema (78 o superior).");
+  if (metrics.macdHistogram != null && metrics.macdHistogram > 0) { momentum += 4; reasons.push("Momentum MACD positivo."); } else invalidations.push("El momentum se invalida si MACD pierde terreno positivo.");
+  add("Momentum", momentum, 15);
+
+  let bollinger = 0;
+  if (metrics.bollingerExpansion != null && metrics.bollingerExpansion > 0) { bollinger += 5; reasons.push("Bandas de Bollinger en expansión."); }
+  if (metrics.bollingerZ != null && metrics.bollingerZ >= 0.5 && (metrics.macdHistogram ?? 0) > 0) { bollinger += 5; reasons.push("Precio sobre banda media con confirmación de momentum."); }
+  add("Bollinger", bollinger, 10);
+
+  let levels = 0;
+  if ((metrics.breakoutPct ?? -1) > 0 && !metrics.failedBreakout) { levels += 7; reasons.push(`Resistencia superada por ${metrics.breakoutPct!.toFixed(2)}%.`); }
+  if (metrics.support != null && quote.price >= metrics.support && (quote.price - metrics.support) / quote.price <= 0.08) { levels += 4; reasons.push(`Soporte cercano definido en ${metrics.support.toFixed(2)}.`); }
+  if (!metrics.failedBreakout && (metrics.breakoutPct ?? -10) >= -1) levels += 4;
+  if (metrics.failedBreakout) invalidations.push("Falsa ruptura detectada: el precio volvió bajo la resistencia previa.");
+  else if (metrics.resistance != null) invalidations.push(`La señal pierde fuerza si no consolida sobre la resistencia ${metrics.resistance.toFixed(2)}.`);
+  if (metrics.support != null) invalidations.push(`Invalidación técnica si pierde el soporte ${metrics.support.toFixed(2)}.`);
+  add("Soporte / resistencia", levels, 15);
+
+  let volatility = 0;
+  if (metrics.volatility != null && metrics.volatility >= 10 && metrics.volatility <= 65) { volatility = 5; reasons.push("Volatilidad suficiente y controlada."); }
+  else if (metrics.volatility != null && metrics.volatility > 90) invalidations.push("Volatilidad errática superior al 90% anualizado.");
+  add("Volatilidad", volatility, 5);
+
+  let multi = 0;
+  const core = [metrics.returns.intraday, metrics.returns.week, metrics.returns.threeMonths];
+  if (core.every(value => value != null && value > 0)) { multi += 7; reasons.push("1D, 5D y 3M alineados al alza."); }
+  else invalidations.push("Se requiere alineación positiva simultánea en 1D, 5D y 3M.");
+  const longTerm = [metrics.returns.sixMonths, metrics.returns.year].filter((value): value is number => value != null);
+  if (longTerm.length && longTerm.every(value => value > 0)) { multi += 3; reasons.push("6M y 1Y acompañan la señal."); }
+  add("Multihorizonte", multi, 10);
+
+  const score = Math.round(categories.reduce((total, category) => total + category.score, 0));
+  if (!metrics.volumeRatio) invalidations.push("No hay volumen comparable: el bloque Volumen no suma puntos.");
+  if (score >= 85) return { label: "LANZADERA FUERTE", color: "violet", score, reasons, invalidations, categories };
+  if (score >= 75) return { label: "LANZADERA ACTIVA", color: "emerald", score, reasons, invalidations, categories };
+  if (score >= 65) return { label: "PREPARANDO", color: "blue", score, reasons, invalidations, categories };
+  if (score >= 50) return { label: "VIGILAR", color: "amber", score, reasons, invalidations, categories };
+  return { label: "SIN SEÑAL", color: "slate", score, reasons, invalidations, categories };
 };
 
 export const formatPrice = (quote: MarketQuote) => new Intl.NumberFormat("es-ES", { minimumFractionDigits: quote.price < 10 ? 4 : 2, maximumFractionDigits: quote.price < 10 ? 5 : 2 }).format(quote.price);

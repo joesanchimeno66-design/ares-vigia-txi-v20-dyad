@@ -2,12 +2,14 @@ import { defineHandler } from "nitro";
 import { getQuery } from "nitro/h3";
 
 type Instrument = { symbol: string; label: string; name: string; stooq?: string; code?: string; currency?: string };
-type Point = { time: string; value: number };
+type Point = { time: string; value: number; volume?: number | null };
 type Metrics = {
-  returns: { intraday: number | null; week: number | null; month: number | null; sixMonths: number | null; year: number | null };
-  ema9: number | null; ema21: number | null; rsi14: number | null; macd: number | null;
-  macdSignal: number | null; macdHistogram: number | null; bollingerZ: number | null;
-  volatility: number | null; trend: "alcista" | "bajista" | "lateral" | null; samples: number;
+  returns: { intraday: number | null; week: number | null; month: number | null; threeMonths: number | null; sixMonths: number | null; year: number | null };
+  ema9: number | null; ema21: number | null; emaSlope: number | null; rsi14: number | null; macd: number | null;
+  macdSignal: number | null; macdHistogram: number | null; bollingerZ: number | null; bollingerExpansion: number | null;
+  volumeRatio: number | null; volumeTrend: number | null; support: number | null; resistance: number | null;
+  breakoutPct: number | null; failedBreakout: boolean; volatility: number | null;
+  trend: "alcista" | "bajista" | "lateral" | null; samples: number;
 };
 type Quote = {
   symbol: string; ticker: string; name: string; price: number; change: number;
@@ -114,13 +116,20 @@ function rsi(values: number[], period=14) { if(values.length<period+1)return nul
 function metrics(points: Point[], intraday: number | null): Metrics {
   const values=points.map(p=>p.value).filter(Number.isFinite); const last=values.at(-1) ?? 0;
   const at=(days:number)=>values.length>days?pct(last,values.at(-(days+1))):null;
-  const e9=values.length>=9?ema(values.slice(-120),9):null,e21=values.length>=21?ema(values.slice(-120),21):null;
+  const ema9Series=values.length>=9?emaSeries(values.slice(-120),9):[];
+  const e9=ema9Series.at(-1)??null,e21=values.length>=21?ema(values.slice(-120),21):null;
+  const previousEma9=ema9Series.length>5?ema9Series.at(-6)??null:null;
+  const emaSlope=e9!==null&&previousEma9!==null&&previousEma9>0?pct(e9,previousEma9):null;
   let macd:null|number=null,signal:null|number=null,hist:null|number=null;
   if(values.length>=35){const e12=emaSeries(values,12),e26=emaSeries(values,26);const series=e12.map((v,i)=>v-e26[i]);macd=series.at(-1)??null;signal=ema(series.slice(-9),9);hist=macd!==null&&signal!==null?macd-signal:null;}
-  let z:null|number=null;if(values.length>=20){const w=values.slice(-20),mean=w.reduce((a,b)=>a+b,0)/w.length;const sd=Math.sqrt(w.reduce((a,b)=>a+(b-mean)**2,0)/w.length);z=sd?(last-mean)/sd:0;}
+  let z:null|number=null,bandExpansion:null|number=null;
+  if(values.length>=40){const width=(window:number[])=>{const mean=window.reduce((a,b)=>a+b,0)/window.length;const sd=Math.sqrt(window.reduce((a,b)=>a+(b-mean)**2,0)/window.length);return mean>0?sd*4/mean:null;};const current=values.slice(-20),previous=values.slice(-40,-20);const currentMean=current.reduce((a,b)=>a+b,0)/current.length;const currentSd=Math.sqrt(current.reduce((a,b)=>a+(b-currentMean)**2,0)/current.length);z=currentSd?(last-currentMean)/currentSd:0;const currentWidth=width(current),previousWidth=width(previous);bandExpansion=currentWidth!==null&&previousWidth!==null&&previousWidth>0?pct(currentWidth,previousWidth):null;}
+  else if(values.length>=20){const w=values.slice(-20),mean=w.reduce((a,b)=>a+b,0)/w.length;const sd=Math.sqrt(w.reduce((a,b)=>a+(b-mean)**2,0)/w.length);z=sd?(last-mean)/sd:0;}
+  const volumeValues=points.map(point=>point.volume??null);const lastVolume=volumeValues.at(-1);const currentVolume=lastVolume!==null&&lastVolume!==undefined&&lastVolume>0?lastVolume:null;const priorVolumes=volumeValues.slice(0,-1).filter((value):value is number=>value!==null&&value>0).slice(-20);const averageVolume=priorVolumes.length>=5?priorVolumes.reduce((a,b)=>a+b,0)/priorVolumes.length:null;const volumeRatio=currentVolume!==null&&averageVolume!==null&&averageVolume>0?currentVolume/averageVolume:null;const recentVolumes=priorVolumes.slice(-6);const volumeTrend=recentVolumes.length===6&&recentVolumes.slice(0,3).reduce((a,b)=>a+b,0)>0?recentVolumes.slice(3).reduce((a,b)=>a+b,0)/recentVolumes.slice(0,3).reduce((a,b)=>a+b,0)-1:null;
+  const prior20=values.slice(-21,-1);const support=prior20.length>=10?Math.min(...prior20):null,resistance=prior20.length>=10?Math.max(...prior20):null;const breakoutPct=resistance!==null&&resistance>0?pct(last,resistance):null;const previous=values.at(-2)??null;const olderResistance=values.length>=22?Math.max(...values.slice(-22,-2)):null;const failedBreakout=previous!==null&&olderResistance!==null&&previous>olderResistance&&last<=olderResistance;
   const daily=values.slice(-31).flatMap((v,i,a)=>i&&a[i-1]>0?[(v-a[i-1])/a[i-1]]:[]);const vol=daily.length>=2?Math.sqrt(daily.reduce((a,b)=>a+b*b,0)/daily.length)*Math.sqrt(252)*100:null;
   const trend=e9!==null&&e21!==null?(e9>e21*1.002?"alcista":e9<e21*.998?"bajista":"lateral"):null;
-  return {returns:{intraday,week:at(5),month:at(21),sixMonths:at(126),year:at(252)},ema9:e9,ema21:e21,rsi14:rsi(values),macd,macdSignal:signal,macdHistogram:hist,bollingerZ:z,volatility:vol,trend,samples:values.length};
+  return {returns:{intraday,week:at(5),month:at(21),threeMonths:at(63),sixMonths:at(126),year:at(252)},ema9:e9,ema21:e21,emaSlope,rsi14:rsi(values),macd,macdSignal:signal,macdHistogram:hist,bollingerZ:z,bollingerExpansion:bandExpansion,volumeRatio,volumeTrend,support,resistance,breakoutPct,failedBreakout,volatility:vol,trend,samples:values.length};
 }
 function parseLines(text:string){const rows=new Map<string,string>();for(const raw of text.replace(/\r|\n/g,"").split(";")){if(!raw.includes("="))continue;const [left,...right]=raw.split("=");const key=left.trim().replace("var ","").replace("hq_str_","").replace("v_","").toLowerCase();const value=right.join("=").trim().replace(/^"|"$/g,"");if(key&&value)rows.set(key,value);}return rows;}
 async function providerText(url:string,referer:string){const response=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0 ARES-Vigia/13",Referer:referer,Accept:"*/*"},signal:AbortSignal.timeout(12000)});if(!response.ok)throw new Error(`HTTP ${response.status}`);return new TextDecoder("gbk").decode(await response.arrayBuffer());}
@@ -152,11 +161,11 @@ async function stooqHistory(symbol:string):Promise<Point[]>{
   const end=new Date(),start=new Date(Date.now()-380*86400000);const d=(x:Date)=>x.toISOString().slice(0,10).replace(/-/g,"");
   const url=`https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&d1=${d(start)}&d2=${d(end)}&i=d`;
   const response=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0 ARES-Vigia/13"},signal:AbortSignal.timeout(12000)});if(!response.ok)throw new Error(`Stooq HTTP ${response.status}`);
-  const lines=(await response.text()).trim().split(/\r?\n/).slice(1);const points=lines.flatMap(line=>{const f=line.split(","),value=num(f[4]);return value!==null&&value>0&&/^\d{4}-\d{2}-\d{2}$/.test(f[0])?[{time:`${f[0]}T16:00:00Z`,value}]:[];});if(points.length)historyCache.set(symbol,{expires:Date.now()+5*60_000,points});return points;
+  const lines=(await response.text()).trim().split(/\r?\n/).slice(1);const points=lines.flatMap(line=>{const f=line.split(","),value=num(f[4]),volume=num(f[5]);return value!==null&&value>0&&/^\d{4}-\d{2}-\d{2}$/.test(f[0])?[{time:`${f[0]}T16:00:00Z`,value,volume:volume!==null&&volume>0?volume:null}]:[];});if(points.length)historyCache.set(symbol,{expires:Date.now()+5*60_000,points});return points;
 }
 async function preferredQuote(instrument:Instrument):Promise<Quote>{
   let history:Point[]=[];try{history=await stooqHistory(instrument.stooq??instrument.symbol);}catch{history=[];}
-  try{const live=await eastmoneyQuote(instrument);const points=history.length?[...history.slice(0,-1),{time:live.updatedAt,value:live.price}]:[{time:live.updatedAt,value:live.price}];return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price:live.price,change:live.change,currency:instrument.currency??"",exchange:"Eastmoney · cotización / Stooq · serie",updatedAt:live.updatedAt,chartSymbol:instrument.stooq??instrument.symbol,priceProvider:"Eastmoney",changeProvider:"Eastmoney (precio vs. cierre previo)",historyProvider:history.length?"Stooq":"Eastmoney (solo punto actual)",points,metrics:metrics(points,live.change)};}catch{if(history.length){const price=history.at(-1)!.value,change=pct(price,history.at(-2)?.value)??0,updatedAt=history.at(-1)!.time;return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:instrument.currency??"",exchange:"Stooq · mercado público",updatedAt,chartSymbol:instrument.stooq??instrument.symbol,priceProvider:"Stooq",changeProvider:"Stooq (cierre vs. cierre previo)",historyProvider:"Stooq",points:history,metrics:metrics(history,change)};}throw new Error("SIN DATOS — FUENTE NO DISPONIBLE");}
+  try{const live=await eastmoneyQuote(instrument);const points=history.length?[...history.slice(0,-1),{time:live.updatedAt,value:live.price,volume:history.at(-1)?.volume??null}]:[{time:live.updatedAt,value:live.price,volume:null}];return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price:live.price,change:live.change,currency:instrument.currency??"",exchange:"Eastmoney · cotización / Stooq · serie",updatedAt:live.updatedAt,chartSymbol:instrument.stooq??instrument.symbol,priceProvider:"Eastmoney",changeProvider:"Eastmoney (precio vs. cierre previo)",historyProvider:history.length?"Stooq":"Eastmoney (solo punto actual)",points,metrics:metrics(points,live.change)};}catch{if(history.length){const price=history.at(-1)!.value,change=pct(price,history.at(-2)?.value)??0,updatedAt=history.at(-1)!.time;return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:instrument.currency??"",exchange:"Stooq · mercado público",updatedAt,chartSymbol:instrument.stooq??instrument.symbol,priceProvider:"Stooq",changeProvider:"Stooq (cierre vs. cierre previo)",historyProvider:"Stooq",points:history,metrics:metrics(history,change)};}throw new Error("SIN DATOS — FUENTE NO DISPONIBLE");}
 }
 async function stooqSet(instruments:Instrument[]){const results=await settleBatched(instruments,preferredQuote);return results.flatMap(r=>r.status==="fulfilled"?[r.value]:[]);}
 async function tencentDailyHistory(instrument:Instrument):Promise<Point[]>{
@@ -168,7 +177,7 @@ async function tencentDailyHistory(instrument:Instrument):Promise<Point[]>{
   const payload=await response.json() as {data?:Record<string,Record<string,unknown>>};
   const bucket=payload.data?.[instrument.code]??payload.data?.[instrument.code.toLowerCase()];
   const rows=(bucket?.day??bucket?.qfqday) as unknown;
-  const points=(Array.isArray(rows)?rows:[]).flatMap((row):Point[]=>{if(!Array.isArray(row))return[];const value=num(row[2]);return value!==null&&value>0&&/^\d{4}-\d{2}-\d{2}$/.test(String(row[0]??""))?[{time:`${row[0]}T16:00:00Z`,value}]:[];});
+  const points=(Array.isArray(rows)?rows:[]).flatMap((row):Point[]=>{if(!Array.isArray(row))return[];const value=num(row[2]),volume=num(row[5]);return value!==null&&value>0&&/^\d{4}-\d{2}-\d{2}$/.test(String(row[0]??""))?[{time:`${row[0]}T16:00:00Z`,value,volume:volume!==null&&volume>0?volume:null}]:[];});
   if(points.length<2)throw new Error("Tencent histórico insuficiente");
   historyCache.set(cacheKey,{expires:Date.now()+5*60_000,points});
   return points;
@@ -188,7 +197,7 @@ async function usSet(market:"acciones"|"etfs", instruments:Instrument[]=usMarket
     else if(sPrice!==null&&sPrice>0){live={price:sPrice,change:deriveChange(sPrice,null,num(sf[2])),updatedAt:sf[3]&&Number.isFinite(Date.parse(sf[3]))?new Date(sf[3]).toISOString():new Date().toISOString(),provider:"Sina"};}
     else{try{live=await eastmoneyQuote(instrument);}catch{live=null;}}
     if(!live){if(history.length){const price=history.at(-1)!.value,change=pct(price,history.at(-2)?.value)??0,updatedAt=history.at(-1)!.time;return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:"USD",exchange:`${historyProvider} · mercado público`,updatedAt,chartSymbol:instrument.stooq!,priceProvider:historyProvider,changeProvider:`${historyProvider} (cierre vs. cierre previo)`,historyProvider,points:history,metrics:metrics(history,change)};}throw new Error("SIN DATOS — FUENTE NO DISPONIBLE");}
-    const points=history.length?[...history.slice(0,-1),{time:live.updatedAt,value:live.price}]:[{time:live.updatedAt,value:live.price}];return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price:live.price,change:live.change,currency:"USD",exchange:`${live.provider} · mercado USA`,updatedAt:live.updatedAt,chartSymbol:instrument.stooq!,priceProvider:live.provider,changeProvider:`${live.provider} (precio vs. cierre previo)`,historyProvider:history.length?historyProvider:`${live.provider} (solo punto actual)`,points,metrics:metrics(points,live.change)};
+    const points=history.length?[...history.slice(0,-1),{time:live.updatedAt,value:live.price,volume:history.at(-1)?.volume??null}]:[{time:live.updatedAt,value:live.price,volume:null}];return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price:live.price,change:live.change,currency:"USD",exchange:`${live.provider} · mercado USA`,updatedAt:live.updatedAt,chartSymbol:instrument.stooq!,priceProvider:live.provider,changeProvider:`${live.provider} (precio vs. cierre previo)`,historyProvider:history.length?historyProvider:`${live.provider} (solo punto actual)`,points,metrics:metrics(points,live.change)};
   });
   return results.flatMap(result=>result.status==="fulfilled"?[result.value]:[]);
 }
