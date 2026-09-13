@@ -1,7 +1,8 @@
 import { defineHandler } from "nitro";
 import { getQuery } from "nitro/h3";
+import { tradingViewDaily } from "../../utils/tradingview";
 
-type Instrument = { symbol: string; label: string; name: string; stooq?: string; code?: string; currency?: string };
+type Instrument = { symbol: string; label: string; name: string; stooq?: string; code?: string; tradingView?: string; currency?: string };
 type Point = { time: string; value: number; open: number; high: number; low: number; volume: number | null };
 type Metrics = {
   returns: { intraday: number | null; week: number | null; month: number | null; threeMonths: number | null; sixMonths: number | null; year: number | null };
@@ -18,8 +19,9 @@ type Quote = {
   points: Point[]; metrics: Metrics;
 };
 
-const tuples = (rows: string[][], suffix = "us", currency = "USD"): Instrument[] => rows.map(([symbol, name]) => ({
-  symbol, label: symbol, name, stooq: `${symbol.toLowerCase()}.${suffix}`, code: `us${symbol}`, currency,
+const nyseSymbols = new Set(["ABBV","BAC","BA","BBAI","CAT","CRM","CVX","DIS","GE","GS","HD","IBM","IONQ","JNJ","JPM","KO","LLY","LOW","MA","MCD","MRK","MS","NKE","NOW","ORCL","PFE","SAN","T","TMO","UBER","UNH","V","WFC","WMT","XOM"]);
+const tuples = (rows: string[][], suffix = "us", currency = "USD", tradingViewExchange = "NASDAQ"): Instrument[] => rows.map(([symbol, name]) => ({
+  symbol, label: symbol, name, stooq: `${symbol.toLowerCase()}.${suffix}`, code: `us${symbol}`, tradingView: `${symbol === "QQQ" ? "NASDAQ" : nyseSymbols.has(symbol) ? "NYSE" : tradingViewExchange}:${symbol}`, currency,
 }));
 
 const usMarkets: Record<"acciones" | "etfs", Instrument[]> = {
@@ -46,7 +48,7 @@ const usMarkets: Record<"acciones" | "etfs", Instrument[]> = {
     ["SHY","iShares 1-3 Year Treasury"],["IEF","iShares 7-10 Year Treasury"],["XBI","SPDR S&P Biotech"],["SMH","VanEck Semiconductor"],
     ["SOXX","iShares Semiconductor"],["XLP","Consumer Staples Select Sector"],["XLU","Utilities Select Sector"],["XLY","Consumer Discretionary Select Sector"],
     ["XLI","Industrial Select Sector"],["XLB","Materials Select Sector"],["GDX","VanEck Gold Miners"],["USO","United States Oil Fund"],
-  ]),
+  ], "us", "USD", "AMEX"),
 };
 
 const europeRows: string[][] = [
@@ -69,7 +71,8 @@ const europeRows: string[][] = [
   ["ERIC-B.ST","ERIC B","Ericsson","eric-b.se","SEK"],["VOLV-B.ST","VOLV B","Volvo","volv-b.se","SEK"],["ATCO-A.ST","ATCO A","Atlas Copco","atco-a.se","SEK"],
   ["NOKIA.HE","NOKIA","Nokia","nokia.fi","EUR"],["KNEBV.HE","KNEBV","KONE","knebv.fi","EUR"],["FORTUM.HE","FORTUM","Fortum","fortum.fi","EUR"],
 ];
-const european: Instrument[] = europeRows.map(([symbol,label,name,stooq,currency]) => ({ symbol,label,name,stooq,currency }));
+const europeanExchanges:Record<string,string>={MC:"BME",DE:"XETR",PA:"EURONEXT",MI:"MIL",AS:"EURONEXT",L:"LSE",LS:"EURONEXT",BR:"EURONEXT",SW:"SIX",CO:"OMXCOP",ST:"OMXSTO",HE:"OMXHEX"};
+const european: Instrument[] = europeRows.map(([symbol,label,name,stooq,currency]) => {const [ticker,suffix]=symbol.split(".");return{symbol,label,name,stooq,tradingView:`${europeanExchanges[suffix]}:${ticker}`,currency};});
 
 const crypto: Instrument[] = [
   ["bitcoin","BTC","Bitcoin"],["ethereum","ETH","Ethereum"],["binancecoin","BNB","BNB"],["solana","SOL","Solana"],["ripple","XRP","XRP"],
@@ -86,18 +89,18 @@ const forex: Instrument[] = [
   ["EUR/USD","Euro / Dólar","EURUSD"],["GBP/USD","Libra / Dólar","GBPUSD"],["USD/JPY","Dólar / Yen","USDJPY"],["USD/CHF","Dólar / Franco suizo","USDCHF"],
   ["AUD/USD","Dólar australiano / Dólar","AUDUSD"],["USD/CAD","Dólar / Dólar canadiense","USDCAD"],["NZD/USD","Dólar neozelandés / Dólar","NZDUSD"],
   ["EUR/GBP","Euro / Libra","EURGBP"],["EUR/JPY","Euro / Yen","EURJPY"],["GBP/JPY","Libra / Yen","GBPJPY"],["EUR/CHF","Euro / Franco suizo","EURCHF"],["AUD/JPY","Dólar australiano / Yen","AUDJPY"],
-].map(([symbol,name,code]) => ({ symbol,label:symbol,name,code:`wh${code}`,stooq:`${code.toLowerCase()}`,currency:"" }));
+].map(([symbol,name,code]) => ({ symbol,label:symbol,name,code:`wh${code}`,stooq:`${code.toLowerCase()}`,tradingView:`OANDA:${code}`,currency:"" }));
 
 const commodities: Instrument[] = [
-  ["GC","ORO","Oro"],["SI","PLATA","Plata"],["CL","WTI","Petróleo WTI"],["OIL","BRENT","Petróleo Brent"],["NG","GAS","Gas natural"],
-  ["HG","COBRE","Cobre"],["W","TRIGO","Trigo"],["C","MAÍZ","Maíz"],["S","SOJA","Soja"],["KC","CAFÉ","Café"],["CC","CACAO","Cacao"],
-].map(([code,label,name]) => ({ symbol:code,label,name,code:`hf_${code}`,stooq:`${code.toLowerCase()}.f`,currency:"USD" }));
+  ["GC","ORO","Oro","COMEX:GC1!"],["SI","PLATA","Plata","COMEX:SI1!"],["CL","WTI","Petróleo WTI","NYMEX:CL1!"],["OIL","BRENT","Petróleo Brent","NYMEX:BB1!"],["NG","GAS","Gas natural","NYMEX:NG1!"],
+  ["HG","COBRE","Cobre","COMEX:HG1!"],["W","TRIGO","Trigo","CBOT:ZW1!"],["C","MAÍZ","Maíz","CBOT:ZC1!"],["S","SOJA","Soja","CBOT:ZS1!"],["KC","CAFÉ","Café","ICEUS:KC1!"],["CC","CACAO","Cacao","ICEUS:CC1!"],
+].map(([code,label,name,tradingView]) => ({ symbol:code,label,name,code:`hf_${code}`,stooq:`${code.toLowerCase()}.f`,tradingView,currency:"USD" }));
 
 const indices: Instrument[] = [
-  ["^ibex","IBEX 35","IBEX 35"],["^spx","S&P 500","S&P 500"],["^ndq","NASDAQ","Nasdaq Composite"],["^dji","DOW","Dow Jones"],
-  ["^stoxx50e","EURO50","Euro Stoxx 50"],["^dax","DAX","DAX"],["^cac","CAC40","CAC 40"],["^ukx","FTSE100","FTSE 100"],
-  ["^nkx","NIKKEI","Nikkei 225"],["^hsi","HANGSENG","Hang Seng"],
-].map(([stooq,label,name]) => ({ symbol:stooq,label,name,stooq,currency:"" }));
+  ["^ibex","IBEX 35","IBEX 35","BME:IBC"],["^spx","S&P 500","S&P 500","SP:SPX"],["^ndq","NASDAQ","Nasdaq Composite","NASDAQ:IXIC"],["^dji","DOW","Dow Jones","DJ:DJI"],
+  ["^stoxx50e","EURO50","Euro Stoxx 50","TVC:SX5E"],["^dax","DAX","DAX","XETR:DAX"],["^cac","CAC40","CAC 40","EURONEXT:PX1"],["^ukx","FTSE100","FTSE 100","TVC:UKX"],
+  ["^nkx","NIKKEI","Nikkei 225","TVC:NI225"],["^hsi","HANGSENG","Hang Seng","TVC:HSI"],
+].map(([stooq,label,name,tradingView]) => ({ symbol:stooq,label,name,stooq,tradingView,currency:"" }));
 
 const funds = tuples([
   ["VFIAX","Vanguard 500 Index Admiral"],["VTSAX","Vanguard Total Market"],["VBTLX","Vanguard Total Bond Market"],["FXAIX","Fidelity 500 Index"],
@@ -108,7 +111,7 @@ const smallCaps = tuples([
   ["SOUN","SoundHound AI"],["BBAI","BigBear.ai"],["LUNR","Intuitive Machines"],["RKLB","Rocket Lab"],["IONQ","IonQ"],["RGTI","Rigetti Computing"],
 ]);
 
-function num(value: unknown) { const cleaned=String(value??"").trim().replace(/[$€£%\s]/g,"").replace(/,(?=\d{3}(?:\D|$))/g,"").replace(",",".");const parsed=Number(cleaned);return Number.isFinite(parsed)?parsed:null; }
+function num(value: unknown) { const cleaned=String(value??"").trim().replace(/[$€£%\s]/g,"").replace(/,(?=\d{3}(?:\D|$))/g,"").replace(",",".");if(!cleaned||cleaned==="-"||cleaned==="--"||cleaned.toLowerCase()==="null")return null;const parsed=Number(cleaned);return Number.isFinite(parsed)?parsed:null; }
 function pct(current: number, previous?: number) { return previous && previous > 0 ? (current - previous) / previous * 100 : null; }
 function validPoint(time: string, open: number | null, high: number | null, low: number | null, close: number | null, volume: number | null): Point[] {
   if(!/^\d{4}-\d{2}-\d{2}/.test(time)||open===null||high===null||low===null||close===null||Math.min(open,high,low,close)<=0||high<Math.max(open,close)||low>Math.min(open,close))return[];
@@ -202,6 +205,13 @@ async function nasdaqHistory(instrument:Instrument):Promise<Point[]>{
   throw new Error(errors.join(" · "));
 }
 async function fmpHistory(instrument:Instrument){const response=await fetch(`https://financialmodelingprep.com/api/v3/historical-price-full/${encodeURIComponent(instrument.symbol)}?apikey=demo`,{headers:{Accept:"application/json"},signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error(`FMP HTTP ${response.status}`);const payload=await response.json() as {historical?:Array<Record<string,unknown>>};return ensureHistory((payload.historical??[]).flatMap(row=>validPoint(String(row.date??""),num(row.open),num(row.high),num(row.low),num(row.close),num(row.volume))),"FMP");}
+async function tradingViewHistory(instrument:Instrument){
+  if(!instrument.tradingView)throw new Error("TradingView sin símbolo compatible");
+  const cacheKey=`tradingview:${instrument.tradingView}`,cached=historyCache.get(cacheKey);if(cached&&cached.expires>Date.now())return cached.points;
+  const candles=await tradingViewDaily(instrument.tradingView,420);
+  const points=ensureHistory(candles.flatMap(candle=>validPoint(candle.time,candle.open,candle.high,candle.low,candle.close,candle.volume)),"TradingView");
+  historyCache.set(cacheKey,{expires:Date.now()+5*60_000,points});return points;
+}
 
 async function stooqHistory(symbol:string):Promise<Point[]>{
   const cached=historyCache.get(symbol);if(cached&&cached.expires>Date.now())return cached.points;
@@ -211,12 +221,13 @@ async function stooqHistory(symbol:string):Promise<Point[]>{
 }
 function dukascopySymbol(instrument:Instrument){const indexMap:Record<string,string>={"^ibex":"ESP.IDX/EUR","^spx":"USA500.IDX/USD","^ndq":"USATECH.IDX/USD","^dji":"USA30.IDX/USD","^stoxx50e":"EUS.IDX/EUR","^dax":"DEU.IDX/EUR","^cac":"FRA.IDX/EUR","^ukx":"GBR.IDX/GBP","^nkx":"JPN.IDX/JPY","^hsi":"HKG.IDX/HKD"};const commodityMap:Record<string,string>={GC:"XAU/USD",SI:"XAG/USD",CL:"LIGHT.CMD/USD",OIL:"BRENT.CMD/USD",NG:"GAS.CMD/USD",HG:"COPPER.CMD/USD"};return indexMap[instrument.symbol]??commodityMap[instrument.symbol]??(instrument.symbol.includes("/")?instrument.symbol:null);}
 async function dukascopyHistory(instrument:Instrument){const symbol=dukascopySymbol(instrument);if(!symbol)throw new Error("Dukascopy sin símbolo compatible");const end=Date.now(),start=end-1200*86400000;const url=new URL("https://freeserv.dukascopy.com/2.0/index.php");url.searchParams.set("path","chart/json3");url.searchParams.set("instrument",symbol);url.searchParams.set("offer_side","B");url.searchParams.set("interval","DAY");url.searchParams.set("splits","true");url.searchParams.set("stocks","true");url.searchParams.set("start",String(start));url.searchParams.set("end",String(end));const response=await fetch(url,{headers:{Accept:"application/json,text/javascript,*/*;q=0.1",Referer:"https://www.dukascopy.com/"},signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error(`Dukascopy HTTP ${response.status}`);const body=await response.text();const jsonStart=body.indexOf("{");const jsonEnd=body.lastIndexOf("}");if(jsonStart<0||jsonEnd<jsonStart)throw new Error(`Dukascopy respuesta inválida (${body.slice(0,60)})`);const payload=JSON.parse(body.slice(jsonStart,jsonEnd+1)) as {data?:unknown[]};const points=(Array.isArray(payload.data)?payload.data:[]).flatMap((row):Point[]=>{if(Array.isArray(row))return validPoint(new Date(Number(row[0])).toISOString(),num(row[1]),num(row[2]),num(row[3]),num(row[4]),num(row[5]));if(row&&typeof row==="object"){const item=row as Record<string,unknown>;return validPoint(new Date(Number(item.time??item.timestamp)).toISOString(),num(item.open),num(item.high),num(item.low),num(item.close),num(item.volume));}return[];});return ensureHistory(points,"Dukascopy");}
-async function selectHistory(instrument:Instrument,order:Array<"Tencent"|"Eastmoney"|"Nasdaq"|"FMP"|"Stooq"|"Dukascopy">){
-  const errors:string[]=[];for(const provider of order){try{const points=provider==="Tencent"?await tencentDailyHistory(instrument):provider==="Eastmoney"?await eastmoneyHistory(instrument):provider==="Nasdaq"?await nasdaqHistory(instrument):provider==="FMP"?await fmpHistory(instrument):provider==="Dukascopy"?await dukascopyHistory(instrument):await stooqHistory(instrument.stooq??instrument.symbol);return{points,provider};}catch(error){errors.push(`${provider}: ${error instanceof Error?error.message:"fuente no disponible"}`);}}
+type HistoryProvider="Tencent"|"Eastmoney"|"Nasdaq"|"FMP"|"TradingView"|"Stooq"|"Dukascopy";
+async function selectHistory(instrument:Instrument,order:HistoryProvider[]){
+  const errors:string[]=[];for(const provider of order){try{const points=provider==="Tencent"?await tencentDailyHistory(instrument):provider==="Eastmoney"?await eastmoneyHistory(instrument):provider==="Nasdaq"?await nasdaqHistory(instrument):provider==="FMP"?await fmpHistory(instrument):provider==="TradingView"?await tradingViewHistory(instrument):provider==="Dukascopy"?await dukascopyHistory(instrument):await stooqHistory(instrument.stooq??instrument.symbol);return{points,provider};}catch(error){errors.push(`${provider}: ${error instanceof Error?error.message:"fuente no disponible"}`);}}
   console.warn("ARES_V22_FUENTES",instrument.symbol,errors.join(" · "));throw new Error(errors.join(" · "));
 }
 async function preferredQuote(instrument:Instrument):Promise<Quote>{
-  const history=await selectHistory(instrument,["Dukascopy","Eastmoney","Stooq","Tencent"]);let live:LiveQuote|null=null;
+  const history=await selectHistory(instrument,["Eastmoney","TradingView","Dukascopy","Stooq","Tencent"]);let live:LiveQuote|null=null;
   try{live=await eastmoneyQuote(instrument);}catch{live=null;}
   return buildQuote(instrument,history.points,history.provider,live);
 }
@@ -244,7 +255,7 @@ async function usSet(market:"acciones"|"etfs", instruments:Instrument[]=usMarket
   try{tencentRows=parseLines(await tencent(instruments.map(i=>i.code!)));}catch{tencentRows=new Map();}
   try{sinaRows=parseLines(await sina(instruments.map(i=>`gb_${i.symbol.toLowerCase()}`)));}catch{sinaRows=new Map();}
   const results=await settleBatched(instruments,async(instrument):Promise<Quote>=>{
-    const history=await selectHistory(instrument,["Tencent","Eastmoney","Nasdaq","FMP","Stooq"]);
+    const history=await selectHistory(instrument,["Tencent","Eastmoney","TradingView","Nasdaq","FMP","Stooq"]);
     const tf=tencentRows.get(instrument.code!.toLowerCase())?.split("~")??[];const tPrice=num(tf[3]),tPrevious=num(tf[4]);
     const sf=sinaRows.get(`gb_${instrument.symbol.toLowerCase()}`)?.split(",")??[];const sPrice=num(sf[1]);
     let live:LiveQuote|null=null;
@@ -273,14 +284,14 @@ async function coinGecko(instruments:Instrument[]=crypto){
 }
 async function tencentForex(instruments:Instrument[]=forex){
   let rows=new Map<string,string>();try{rows=parseLines(await tencent(instruments.map(i=>i.code!)));}catch{rows=new Map();}
-  const histories=await settleBatched(instruments,i=>selectHistory(i,["Tencent","Dukascopy","Stooq","Eastmoney"]),1);
+  const histories=await settleBatched(instruments,i=>selectHistory(i,["Tencent","Eastmoney","TradingView","Dukascopy","Stooq"]),1);
   return instruments.flatMap((instrument,index)=>{if(histories[index].status!=="fulfilled")return[];const f=rows.get(instrument.code!.toLowerCase())?.split("~")??[];const price=num(f[3]),previous=num(f[4]);const live=price!==null&&price>0?{price,change:deriveChange(price,previous,num(f[13])),updatedAt:new Date().toISOString(),provider:"Tencent"}:null;const history=histories[index].value;return[buildQuote(instrument,history.points,history.provider,live,"","FOREX")];});
 }
 async function commoditySet(instruments:Instrument[]=commodities){
   let tencentRows=new Map<string,string>(),sinaRows=new Map<string,string>();
   try{tencentRows=parseLines(await tencent(instruments.map(i=>i.code!)));}catch{tencentRows=new Map();}
   try{sinaRows=parseLines(await providerText(`https://hq.sinajs.cn/list=${instruments.map(i=>i.code!).join(",")}`,"https://finance.sina.com.cn/"));}catch{sinaRows=new Map();}
-  const results=await settleBatched(instruments,async(instrument):Promise<Quote>=>{const history=await selectHistory(instrument,["Tencent","Dukascopy","Stooq","Eastmoney"]);let live:LiveQuote|null=null;for(const [provider,rows] of [["Tencent",tencentRows],["Sina",sinaRows]] as const){const f=rows.get(instrument.code!.toLowerCase())?.split(",")??[];const price=num(f[0]),change=num(f[1]);if(price!==null&&price>0){live={price,change:change??pct(price,history.points.at(-1)?.value)??0,updatedAt:f[12]&&f[6]?`${f[12]}T${f[6]}+08:00`:new Date().toISOString(),provider};break;}}return buildQuote(instrument,history.points,history.provider,live,"USD","materias primas");},1);
+  const results=await settleBatched(instruments,async(instrument):Promise<Quote>=>{const history=await selectHistory(instrument,["Tencent","Eastmoney","TradingView","Dukascopy","Stooq"]);let live:LiveQuote|null=null;for(const [provider,rows] of [["Tencent",tencentRows],["Sina",sinaRows]] as const){const f=rows.get(instrument.code!.toLowerCase())?.split(",")??[];const price=num(f[0]),change=num(f[1]);if(price!==null&&price>0){live={price,change:change??pct(price,history.points.at(-1)?.value)??0,updatedAt:f[12]&&f[6]?`${f[12]}T${f[6]}+08:00`:new Date().toISOString(),provider};break;}}return buildQuote(instrument,history.points,history.provider,live,"USD","materias primas");},1);
   return results.flatMap(result=>result.status==="fulfilled"?[result.value]:[]);
 }
 async function load(market:string){if(market==="acciones"||market==="etfs")return{requested:usMarkets[market].length,items:await usSet(market)};if(market==="europa")return{requested:european.length,items:await stooqSet(european)};if(market==="cripto")return{requested:crypto.length,items:await coinGecko()};if(market==="indices")return{requested:indices.length,items:await stooqSet(indices)};if(market==="forex")return{requested:forex.length,items:await tencentForex()};if(market==="materias")return{requested:commodities.length,items:await commoditySet()};if(market==="fondos")return{requested:funds.length,items:await usSet("etfs",funds)};if(market==="pequenas")return{requested:smallCaps.length,items:await stooqSet(smallCaps)};return{requested:0,items:[] as Quote[]};}

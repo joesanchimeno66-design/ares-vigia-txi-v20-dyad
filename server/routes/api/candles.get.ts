@@ -1,5 +1,6 @@
 import { defineHandler } from "nitro";
 import { createError, getQuery } from "nitro/h3";
+import { tradingViewDaily } from "../../utils/tradingview";
 
 type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number | null };
 type CandleResult = { candles: Candle[]; provider: string; resolution: string };
@@ -83,6 +84,31 @@ async function eastmoneyCandles(ticker: string, horizon: number): Promise<Candle
   return ensureCoverage({ candles, provider: "Eastmoney · OHLC real", resolution: horizon === 0 ? "5 minutos" : "1 día" }, horizon);
 }
 
+function tradingViewSymbol(market: string, ticker: string) {
+  if (market === "etfs") return `${ticker === "QQQ" ? "NASDAQ" : "AMEX"}:${ticker}`;
+  if (market === "fondos" || market === "acciones" || market === "pequenas") return `NASDAQ:${ticker}`;
+  if (market === "forex") return `OANDA:${ticker.replace("/", "")}`;
+  if (market === "europa") {
+    const [base, suffix] = ticker.split(".");
+    const exchanges: Record<string, string> = { MC: "BME", DE: "XETR", PA: "EURONEXT", MI: "MIL", AS: "EURONEXT", L: "LSE", LS: "EURONEXT", BR: "EURONEXT", SW: "SIX", CO: "OMXCOP", ST: "OMXSTO", HE: "OMXHEX" };
+    return exchanges[suffix] ? `${exchanges[suffix]}:${base}` : null;
+  }
+  const indices: Record<string, string> = { "^IBEX": "BME:IBC", "^SPX": "SP:SPX", "^NDQ": "NASDAQ:IXIC", "^DJI": "DJ:DJI", "^STOXX50E": "TVC:SX5E", "^DAX": "XETR:DAX", "^CAC": "EURONEXT:PX1", "^UKX": "TVC:UKX", "^NKX": "TVC:NI225", "^HSI": "TVC:HSI" };
+  const commodities: Record<string, string> = { GC: "COMEX:GC1!", SI: "COMEX:SI1!", CL: "NYMEX:CL1!", OIL: "NYMEX:BB1!", NG: "NYMEX:NG1!", HG: "COMEX:HG1!", W: "CBOT:ZW1!", C: "CBOT:ZC1!", S: "CBOT:ZS1!", KC: "ICEUS:KC1!", CC: "ICEUS:CC1!" };
+  return indices[ticker] ?? commodities[ticker] ?? null;
+}
+
+async function tradingViewCandles(market: string, ticker: string, horizon: number): Promise<CandleResult> {
+  if (horizon === 0) throw new Error("TradingView diario no sustituye datos intradía");
+  const providerSymbol = tradingViewSymbol(market, ticker);
+  if (!providerSymbol) throw new Error("TradingView sin símbolo compatible");
+  const cutoff = Date.now() - horizonDays[horizon] * 86_400_000;
+  const candles = (await tradingViewDaily(providerSymbol, 420))
+    .filter(candle => Date.parse(candle.time) >= cutoff)
+    .flatMap(candle => validCandle(candle.time, candle.open, candle.high, candle.low, candle.close, candle.volume));
+  return ensureCoverage({ candles, provider: "TradingView · OHLC real", resolution: "1 día" }, horizon);
+}
+
 async function stooqCandles(symbol: string, horizon: number): Promise<CandleResult> {
   const end = new Date();
   const start = new Date(Date.now() - horizonDays[horizon] * 86_400_000);
@@ -126,6 +152,7 @@ export default defineHandler(async (event) => {
       const providers = [
         () => tencentCandles(ticker, horizon),
         () => eastmoneyCandles(ticker, horizon),
+        () => tradingViewCandles(market, ticker, horizon),
         () => stooqCandles(symbol, horizon),
       ];
       let selected: CandleResult | null = null;
@@ -139,7 +166,7 @@ export default defineHandler(async (event) => {
     return { market, symbol, ticker, horizon, ...result, updatedAt: new Date().toISOString(), error: null };
   } catch (error) {
     return {
-      market, symbol, ticker, horizon, candles: [], provider: market === "cripto" ? "CoinGecko" : "Tencent / Eastmoney / Stooq", resolution: "no disponible",
+      market, symbol, ticker, horizon, candles: [], provider: market === "cripto" ? "CoinGecko" : "Tencent / Eastmoney / TradingView / Stooq", resolution: "no disponible",
       updatedAt: new Date().toISOString(), error: `SIN DATOS — FUENTE NO DISPONIBLE${error instanceof Error ? ` · ${error.message}` : ""}`,
     };
   }
