@@ -29,46 +29,21 @@ function normalizeMarketItems(items: MarketQuote[] | unknown): MarketQuote[] {
   return items.flatMap((item): MarketQuote[] => {
     if (!item || typeof item !== "object") return [];
     const quote = item as MarketQuote;
-    const price = Number(quote.price);
-    if (!quote.symbol || !quote.ticker || !Number.isFinite(price) || price <= 0) return [];
-    const reportedChange = typeof quote.change === "number" ? quote.change : Number.NaN;
-    const change = Number.isFinite(reportedChange) ? reportedChange : 0;
-    const returns = quote.metrics?.returns;
-    const intraday = typeof returns?.intraday === "number" ? returns.intraday : Number.NaN;
-    return [{
-      ...quote,
-      price,
-      change,
-      points: Array.isArray(quote.points) ? quote.points : [],
-      metrics: {
-        returns: {
-          intraday: Number.isFinite(intraday) ? intraday : change,
-          week: returns?.week ?? null,
-          month: returns?.month ?? null,
-          threeMonths: returns?.threeMonths ?? null,
-          sixMonths: returns?.sixMonths ?? null,
-          year: returns?.year ?? null,
-        },
-        ema9: quote.metrics?.ema9 ?? null,
-        ema21: quote.metrics?.ema21 ?? null,
-        emaSlope: quote.metrics?.emaSlope ?? null,
-        rsi14: quote.metrics?.rsi14 ?? null,
-        macd: quote.metrics?.macd ?? null,
-        macdSignal: quote.metrics?.macdSignal ?? null,
-        macdHistogram: quote.metrics?.macdHistogram ?? null,
-        bollingerZ: quote.metrics?.bollingerZ ?? null,
-        bollingerExpansion: quote.metrics?.bollingerExpansion ?? null,
-        volumeRatio: quote.metrics?.volumeRatio ?? null,
-        volumeTrend: quote.metrics?.volumeTrend ?? null,
-        support: quote.metrics?.support ?? null,
-        resistance: quote.metrics?.resistance ?? null,
-        breakoutPct: quote.metrics?.breakoutPct ?? null,
-        failedBreakout: quote.metrics?.failedBreakout ?? false,
-        volatility: quote.metrics?.volatility ?? null,
-        trend: quote.metrics?.trend ?? null,
-        samples: quote.metrics?.samples ?? 0,
-      },
-    }];
+    const points = Array.isArray(quote.points) ? quote.points : [];
+    const firstTime = Date.parse(points[0]?.time ?? "");
+    const lastTime = Date.parse(points.at(-1)?.time ?? "");
+    const historySpan = (lastTime - firstTime) / 86_400_000;
+    const required = [
+      quote.price, quote.previousClose, quote.open, quote.high, quote.low,
+      quote.metrics?.ema9, quote.metrics?.ema21, quote.metrics?.rsi14,
+      quote.metrics?.macd, quote.metrics?.macdSignal, quote.metrics?.bollingerZ,
+      quote.metrics?.support, quote.metrics?.resistance, quote.metrics?.volatility,
+      quote.metrics?.returns?.week, quote.metrics?.returns?.threeMonths,
+      quote.metrics?.returns?.sixMonths, quote.metrics?.returns?.year,
+    ];
+    const validOhlc = points.every(point => Number.isFinite(point.open) && Number.isFinite(point.high) && Number.isFinite(point.low) && Number.isFinite(point.value) && point.high >= Math.max(point.open, point.value) && point.low <= Math.min(point.open, point.value));
+    if (!quote.symbol || !quote.ticker || required.some(value => !Number.isFinite(value)) || quote.price <= 0 || points.length < 70 || historySpan < 350 || !validOhlc || quote.metrics.samples < 70) return [];
+    return [quote];
   });
 }
 

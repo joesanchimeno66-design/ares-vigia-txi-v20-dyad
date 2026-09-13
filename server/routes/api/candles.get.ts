@@ -47,7 +47,7 @@ async function tencentCandles(ticker: string, horizon: number): Promise<CandleRe
   if (!response.ok) throw new Error(`Tencent OHLC HTTP ${response.status}`);
   const payload = await response.json() as { data?: Record<string, Record<string, unknown>> };
   const bucket = payload.data?.[code];
-  const rows = (bucket?.[period] ?? bucket?.[`qfq${period}`]) as unknown;
+  const rows = (bucket?.[`qfq${period}`] ?? bucket?.[period]) as unknown;
   const candles = (Array.isArray(rows) ? rows : []).flatMap((row): Candle[] => {
     if (!Array.isArray(row)) return [];
     return validCandle(String(row[0] ?? ""), numeric(row[1]), numeric(row[3]), numeric(row[4]), numeric(row[2]), numeric(row[5]));

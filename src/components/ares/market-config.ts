@@ -50,10 +50,10 @@ export type MarketMetrics = {
 };
 
 export type MarketQuote = {
-  symbol: string; ticker: string; name: string; price: number; change: number;
+  symbol: string; ticker: string; name: string; price: number; previousClose: number; open: number; high: number; low: number; volume: number | null; change: number;
   currency: string; exchange: string; updatedAt: string; chartSymbol: string;
   priceProvider?: string; changeProvider?: string; historyProvider?: string;
-  points: { time: string; value: number; volume?: number | null }[]; metrics: MarketMetrics;
+  points: { time: string; value: number; open: number; high: number; low: number; volume: number | null }[]; metrics: MarketMetrics;
 };
 
 export type MarketCandle = {
