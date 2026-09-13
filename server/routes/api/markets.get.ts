@@ -159,20 +159,36 @@ async function preferredQuote(instrument:Instrument):Promise<Quote>{
   try{const live=await eastmoneyQuote(instrument);const points=history.length?[...history.slice(0,-1),{time:live.updatedAt,value:live.price}]:[{time:live.updatedAt,value:live.price}];return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price:live.price,change:live.change,currency:instrument.currency??"",exchange:"Eastmoney · cotización / Stooq · serie",updatedAt:live.updatedAt,chartSymbol:instrument.stooq??instrument.symbol,priceProvider:"Eastmoney",changeProvider:"Eastmoney (precio vs. cierre previo)",historyProvider:history.length?"Stooq":"Eastmoney (solo punto actual)",points,metrics:metrics(points,live.change)};}catch{if(history.length){const price=history.at(-1)!.value,change=pct(price,history.at(-2)?.value)??0,updatedAt=history.at(-1)!.time;return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:instrument.currency??"",exchange:"Stooq · mercado público",updatedAt,chartSymbol:instrument.stooq??instrument.symbol,priceProvider:"Stooq",changeProvider:"Stooq (cierre vs. cierre previo)",historyProvider:"Stooq",points:history,metrics:metrics(history,change)};}throw new Error("SIN DATOS — FUENTE NO DISPONIBLE");}
 }
 async function stooqSet(instruments:Instrument[]){const results=await settleBatched(instruments,preferredQuote);return results.flatMap(r=>r.status==="fulfilled"?[r.value]:[]);}
-async function usSet(market:"acciones"|"etfs"){
-  const instruments=usMarkets[market];let tencentRows=new Map<string,string>(),sinaRows=new Map<string,string>();
+async function tencentDailyHistory(instrument:Instrument):Promise<Point[]>{
+  if(!instrument.code)throw new Error("Tencent sin código");
+  const cacheKey=`tencent:${instrument.code.toLowerCase()}`,cached=historyCache.get(cacheKey);
+  if(cached&&cached.expires>Date.now())return cached.points;
+  const response=await fetch(`https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${encodeURIComponent(`${instrument.code},day,,,420,qfq`)}`,{headers:{Accept:"application/json",Referer:"https://gu.qq.com/","User-Agent":"Mozilla/5.0 ARES-Vigia/13"},signal:AbortSignal.timeout(12000)});
+  if(!response.ok)throw new Error(`Tencent histórico HTTP ${response.status}`);
+  const payload=await response.json() as {data?:Record<string,Record<string,unknown>>};
+  const bucket=payload.data?.[instrument.code]??payload.data?.[instrument.code.toLowerCase()];
+  const rows=(bucket?.day??bucket?.qfqday) as unknown;
+  const points=(Array.isArray(rows)?rows:[]).flatMap((row):Point[]=>{if(!Array.isArray(row))return[];const value=num(row[2]);return value!==null&&value>0&&/^\d{4}-\d{2}-\d{2}$/.test(String(row[0]??""))?[{time:`${row[0]}T16:00:00Z`,value}]:[];});
+  if(points.length<2)throw new Error("Tencent histórico insuficiente");
+  historyCache.set(cacheKey,{expires:Date.now()+5*60_000,points});
+  return points;
+}
+async function usSet(market:"acciones"|"etfs", instruments:Instrument[]=usMarkets[market]){
+  let tencentRows=new Map<string,string>(),sinaRows=new Map<string,string>();
   try{tencentRows=parseLines(await tencent(instruments.map(i=>i.code!)));}catch{tencentRows=new Map();}
   try{sinaRows=parseLines(await sina(instruments.map(i=>`gb_${i.symbol.toLowerCase()}`)));}catch{sinaRows=new Map();}
   const results=await settleBatched(instruments,async(instrument):Promise<Quote>=>{
-    let history:Point[]=[];try{history=await stooqHistory(instrument.stooq!);}catch{history=[];}
+    let history:Point[]=[],historyProvider="";
+    if(market==="etfs"){try{history=await tencentDailyHistory(instrument);historyProvider="Tencent";}catch{try{history=await stooqHistory(instrument.stooq!);historyProvider="Stooq";}catch{history=[];}}}
+    else{try{history=await stooqHistory(instrument.stooq!);historyProvider="Stooq";}catch{history=[];}}
     const tf=tencentRows.get(instrument.code!.toLowerCase())?.split("~")??[];const tPrice=num(tf[3]),tPrevious=num(tf[4]);
     const sf=sinaRows.get(`gb_${instrument.symbol.toLowerCase()}`)?.split(",")??[];const sPrice=num(sf[1]);
     let live:LiveQuote|null=null;
     if(tPrice!==null&&tPrice>0){const raw=tf[30];live={price:tPrice,change:deriveChange(tPrice,tPrevious,num(tf[32])),updatedAt:/^\d{14}$/.test(raw??"")?`${raw.slice(0,4)}-${raw.slice(4,6)}-${raw.slice(6,8)}T${raw.slice(8,10)}:${raw.slice(10,12)}:${raw.slice(12,14)}-04:00`:new Date().toISOString(),provider:"Tencent"};}
     else if(sPrice!==null&&sPrice>0){live={price:sPrice,change:deriveChange(sPrice,null,num(sf[2])),updatedAt:sf[3]&&Number.isFinite(Date.parse(sf[3]))?new Date(sf[3]).toISOString():new Date().toISOString(),provider:"Sina"};}
     else{try{live=await eastmoneyQuote(instrument);}catch{live=null;}}
-    if(!live){if(history.length){const price=history.at(-1)!.value,change=pct(price,history.at(-2)?.value)??0,updatedAt=history.at(-1)!.time;return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:"USD",exchange:"Stooq · mercado público",updatedAt,chartSymbol:instrument.stooq!,priceProvider:"Stooq",changeProvider:"Stooq (cierre vs. cierre previo)",historyProvider:"Stooq",points:history,metrics:metrics(history,change)};}throw new Error("SIN DATOS — FUENTE NO DISPONIBLE");}
-    const points=history.length?[...history.slice(0,-1),{time:live.updatedAt,value:live.price}]:[{time:live.updatedAt,value:live.price}];return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price:live.price,change:live.change,currency:"USD",exchange:`${live.provider} · mercado USA`,updatedAt:live.updatedAt,chartSymbol:instrument.stooq!,priceProvider:live.provider,changeProvider:`${live.provider} (precio vs. cierre previo)`,historyProvider:history.length?"Stooq":`${live.provider} (solo punto actual)`,points,metrics:metrics(points,live.change)};
+    if(!live){if(history.length){const price=history.at(-1)!.value,change=pct(price,history.at(-2)?.value)??0,updatedAt=history.at(-1)!.time;return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price,change,currency:"USD",exchange:`${historyProvider} · mercado público`,updatedAt,chartSymbol:instrument.stooq!,priceProvider:historyProvider,changeProvider:`${historyProvider} (cierre vs. cierre previo)`,historyProvider,points:history,metrics:metrics(history,change)};}throw new Error("SIN DATOS — FUENTE NO DISPONIBLE");}
+    const points=history.length?[...history.slice(0,-1),{time:live.updatedAt,value:live.price}]:[{time:live.updatedAt,value:live.price}];return{symbol:instrument.label,ticker:instrument.symbol,name:instrument.name,price:live.price,change:live.change,currency:"USD",exchange:`${live.provider} · mercado USA`,updatedAt:live.updatedAt,chartSymbol:instrument.stooq!,priceProvider:live.provider,changeProvider:`${live.provider} (precio vs. cierre previo)`,historyProvider:history.length?historyProvider:`${live.provider} (solo punto actual)`,points,metrics:metrics(points,live.change)};
   });
   return results.flatMap(result=>result.status==="fulfilled"?[result.value]:[]);
 }
@@ -199,6 +215,6 @@ async function commoditySet(){
   }
   return[];
 }
-async function load(market:string){if(market==="acciones"||market==="etfs")return{requested:usMarkets[market].length,items:await usSet(market)};if(market==="europa")return{requested:european.length,items:await stooqSet(european)};if(market==="cripto")return{requested:crypto.length,items:await coinGecko()};if(market==="indices")return{requested:indices.length,items:await stooqSet(indices)};if(market==="forex")return{requested:forex.length,items:await tencentForex()};if(market==="materias")return{requested:commodities.length,items:await commoditySet()};if(market==="fondos")return{requested:funds.length,items:await stooqSet(funds)};if(market==="pequenas")return{requested:smallCaps.length,items:await stooqSet(smallCaps)};return{requested:0,items:[] as Quote[]};}
+async function load(market:string){if(market==="acciones"||market==="etfs")return{requested:usMarkets[market].length,items:await usSet(market)};if(market==="europa")return{requested:european.length,items:await stooqSet(european)};if(market==="cripto")return{requested:crypto.length,items:await coinGecko()};if(market==="indices")return{requested:indices.length,items:await stooqSet(indices)};if(market==="forex")return{requested:forex.length,items:await tencentForex()};if(market==="materias")return{requested:commodities.length,items:await commoditySet()};if(market==="fondos")return{requested:funds.length,items:await usSet("etfs",funds)};if(market==="pequenas")return{requested:smallCaps.length,items:await stooqSet(smallCaps)};return{requested:0,items:[] as Quote[]};}
 
 export default defineHandler(async(event)=>{const market=String(getQuery(event).market??"acciones").toLowerCase();try{const{requested,items}=await load(market);if(!requested)return{market,mode:"error",provider:"ninguno",items:[],requested:0,failures:0,error:"Mercado no válido"};const failures=requested-items.length;const providers=[...new Set(items.map(item=>item.priceProvider??item.exchange))];return{market,mode:items.length===requested?"real":items.length?"mixto":"sin-datos",provider:providers.join(" / ")||"fuente no disponible",updatedAt:new Date().toISOString(),requested,failures,items,error:items.length?null:"SIN DATOS — FUENTE NO DISPONIBLE"};}catch(error){return{market,mode:"sin-datos",provider:"fuentes alternativas no disponibles",updatedAt:new Date().toISOString(),requested:0,failures:0,items:[],error:`SIN DATOS — FUENTE NO DISPONIBLE${error instanceof Error?` · ${error.message}`:""}`};}});
