@@ -24,6 +24,45 @@ type MarketResponse = { items: MarketQuote[]; mode: DataMode; provider: string; 
 type ProviderStatus = { mode: DataMode; provider: string; detail: string };
 type AlertItem = { id: number; text: string; time: string };
 
+function normalizeMarketItems(items: MarketQuote[] | unknown): MarketQuote[] {
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item): MarketQuote[] => {
+    if (!item || typeof item !== "object") return [];
+    const quote = item as MarketQuote;
+    const price = Number(quote.price);
+    if (!quote.symbol || !quote.ticker || !Number.isFinite(price) || price <= 0) return [];
+    const reportedChange = typeof quote.change === "number" ? quote.change : Number.NaN;
+    const change = Number.isFinite(reportedChange) ? reportedChange : 0;
+    const returns = quote.metrics?.returns;
+    const intraday = typeof returns?.intraday === "number" ? returns.intraday : Number.NaN;
+    return [{
+      ...quote,
+      price,
+      change,
+      points: Array.isArray(quote.points) ? quote.points : [],
+      metrics: {
+        returns: {
+          intraday: Number.isFinite(intraday) ? intraday : change,
+          week: returns?.week ?? null,
+          month: returns?.month ?? null,
+          sixMonths: returns?.sixMonths ?? null,
+          year: returns?.year ?? null,
+        },
+        ema9: quote.metrics?.ema9 ?? null,
+        ema21: quote.metrics?.ema21 ?? null,
+        rsi14: quote.metrics?.rsi14 ?? null,
+        macd: quote.metrics?.macd ?? null,
+        macdSignal: quote.metrics?.macdSignal ?? null,
+        macdHistogram: quote.metrics?.macdHistogram ?? null,
+        bollingerZ: quote.metrics?.bollingerZ ?? null,
+        volatility: quote.metrics?.volatility ?? null,
+        trend: quote.metrics?.trend ?? null,
+        samples: quote.metrics?.samples ?? 0,
+      },
+    }];
+  });
+}
+
 const tone: Record<string, string> = {
   blue: "bg-blue-50 text-blue-700", violet: "bg-violet-50 text-violet-700",
   emerald: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-800",
@@ -188,7 +227,46 @@ export function AresVigiaApp() {
   const [alerts,setAlerts]=useState<AlertItem[]>(()=>JSON.parse(localStorage.getItem("ares-alerts")||"[]")); const [alertsOpen,setAlertsOpen]=useState(false); const [tool,setTool]=useState<"bot"|"stop"|null>(null); const [botActive,setBotActive]=useState(false); const [threshold,setThreshold]=useState(75); const [now,setNow]=useState(new Date());
   const current=navItems.find(n=>n.id===section)!;
   useEffect(()=>{const timer=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(timer)},[]);
-  const refresh=async(id:MarketId)=>{setLoading(v=>({...v,[id]:true}));try{const endpoint=new URL("/api/markets",window.location.origin);endpoint.searchParams.set("market",id);const response=await fetch(endpoint,{headers:{Accept:"application/json"},cache:"no-store"});const contentType=response.headers.get("content-type")||"";if(!response.ok||!contentType.includes("application/json"))throw new Error(response.ok?"La ruta de datos devolvió HTML en lugar de JSON":`HTTP ${response.status}`);const data:MarketResponse=await response.json();if(data.items?.length){setQuotes(v=>({...v,[id]:data.items}));setLive(v=>({...v,[id]:true}));setProviderStatus(v=>({...v,[id]:{mode:data.mode,provider:`PROVEEDOR: ${data.provider}`,detail:data.mode==="mixto"?`MODO PARCIAL · ${data.items.length} de ${data.requested??data.items.length} activos reales`:"DATOS REALES"}}));toast.success(`${data.items.length} activos reales actualizados · ${data.provider}`);if(botActive){const hits=data.items.filter(q=>getFlight(q.change,q).score>=threshold);if(hits.length){const item={id:Date.now(),text:`Bot Vigía · ${id}: ${hits.map(q=>q.symbol).join(", ")} supera ARES ${threshold}`,time:new Date().toISOString()};setAlerts(v=>[item,...v].slice(0,30));void fetch("/api/telegram",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:item.text})}).catch(()=>undefined);}}}else{setQuotes(v=>({...v,[id]:[]}));setLive(v=>({...v,[id]:false}));setProviderStatus(v=>({...v,[id]:{mode:"sin-datos",provider:`PROVEEDOR: ${data.provider||"fuente no disponible"}`,detail:"SIN DATOS – FUENTE NO DISPONIBLE"}}));toast.warning("SIN DATOS – FUENTE NO DISPONIBLE");}}catch(error){setQuotes(v=>({...v,[id]:[]}));setLive(v=>({...v,[id]:false}));const detail=error instanceof Error?error.message:"error de conexión";setProviderStatus(v=>({...v,[id]:{mode:"sin-datos",provider:"PROVEEDOR: fuentes alternativas no disponibles",detail:`SIN DATOS – FUENTE NO DISPONIBLE · ${detail}`}}));toast.warning("SIN DATOS – FUENTE NO DISPONIBLE");}finally{setLoading(v=>({...v,[id]:false}));}};
+  const refresh=async(id:MarketId)=>{
+    setLoading(v=>({...v,[id]:true}));
+    try {
+      const endpoint=new URL("/api/markets",window.location.origin);
+      endpoint.searchParams.set("market",id);
+      const response=await fetch(endpoint,{headers:{Accept:"application/json"},cache:"no-store"});
+      const contentType=response.headers.get("content-type")||"";
+      if(!response.ok||!contentType.includes("application/json"))throw new Error(response.ok?"La ruta de datos devolvió HTML en lugar de JSON":`HTTP ${response.status}`);
+      const data:MarketResponse=await response.json();
+      const items=normalizeMarketItems(data.items);
+      if(items.length){
+        const normalizedMode:DataMode=data.requested&&items.length<data.requested?"mixto":"real";
+        setQuotes(v=>({...v,[id]:items}));
+        setLive(v=>({...v,[id]:true}));
+        setProviderStatus(v=>({...v,[id]:{mode:normalizedMode,provider:`PROVEEDOR: ${data.provider}`,detail:normalizedMode==="mixto"?`MODO PARCIAL · ${items.length} de ${data.requested??items.length} activos reales`:`DATOS REALES · ${items.length} activos`}}));
+        toast.success(`${items.length} activos reales actualizados · ${data.provider}`);
+        if(botActive){
+          const hits=items.filter(q=>getFlight(q.change,q).score>=threshold);
+          if(hits.length){
+            const item={id:Date.now(),text:`Bot Vigía · ${id}: ${hits.map(q=>q.symbol).join(", ")} supera ARES ${threshold}`,time:new Date().toISOString()};
+            setAlerts(v=>[item,...v].slice(0,30));
+            void fetch("/api/telegram",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:item.text})}).catch(()=>undefined);
+          }
+        }
+      }else{
+        setQuotes(v=>({...v,[id]:[]}));
+        setLive(v=>({...v,[id]:false}));
+        setProviderStatus(v=>({...v,[id]:{mode:"sin-datos",provider:`PROVEEDOR: ${data.provider||"fuente no disponible"}`,detail:"SIN DATOS – FUENTE NO DISPONIBLE"}}));
+        toast.warning("SIN DATOS – FUENTE NO DISPONIBLE");
+      }
+    }catch(error){
+      setQuotes(v=>({...v,[id]:[]}));
+      setLive(v=>({...v,[id]:false}));
+      const detail=error instanceof Error?error.message:"error de conexión";
+      setProviderStatus(v=>({...v,[id]:{mode:"sin-datos",provider:"PROVEEDOR: fuentes alternativas no disponibles",detail:`SIN DATOS – FUENTE NO DISPONIBLE · ${detail}`}}));
+      toast.warning("SIN DATOS – FUENTE NO DISPONIBLE");
+    }finally{
+      setLoading(v=>({...v,[id]:false}));
+    }
+  };
   useEffect(()=>{if(marketIds.has(section)&&!live[section as MarketId]&&!loading[section as MarketId])void refresh(section as MarketId)},[section]);
   useEffect(()=>{if(!marketIds.has(section))return;const timer=window.setInterval(()=>void refresh(section as MarketId),60_000);return()=>window.clearInterval(timer)},[section,botActive,threshold]);
   useEffect(()=>localStorage.setItem("ares-watchlist",JSON.stringify(watchlist)),[watchlist]); useEffect(()=>localStorage.setItem("ares-alerts",JSON.stringify(alerts)),[alerts]);
